@@ -268,16 +268,24 @@ class NvidiaRAGIngestor():
 
             # Peform ingestion using nvingest for all files that have not failed
             # Check if the provided collection_name exists in vector-DB
-            # Connect to Milvus to check for collection availability
-            url = urlparse(vdb_endpoint)
-            connection_alias = f"milvus_{url.hostname}_{url.port}"
-            connections.connect(connection_alias, host=url.hostname, port=url.port)
-
-            try:
-                if not utility.has_collection(collection_name, using=connection_alias):
-                    raise ValueError(f"Collection {collection_name} does not exist in {vdb_endpoint}. Ensure a collection is created using POST /collections endpoint first.")
-            finally:
-                connections.disconnect(connection_alias)
+            config = get_config()
+            if config.vector_store.name == "milvus":
+                # Connect to Milvus to check for collection availability
+                url = urlparse(vdb_endpoint)
+                connection_alias = f"milvus_{url.hostname}_{url.port}"
+                connections.connect(connection_alias, host=url.hostname, port=url.port)
+                try:
+                    if not utility.has_collection(collection_name, using=connection_alias):
+                        raise ValueError(f"Collection {collection_name} does not exist in {vdb_endpoint}. Ensure a collection is created using POST /collections endpoint first.")
+                finally:
+                    connections.disconnect(connection_alias)
+            elif config.vector_store.name == "pinecone":
+                from pinecone import Pinecone
+                pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+                if not pinecone_client.has_index(collection_name):
+                    raise ValueError(f"Pinecone index {collection_name} does not exist. Ensure the index is created before ingestion.")
+            else:
+                raise ValueError(f"{config.vector_store.name} vector database is not supported for ingestion.")
 
             start_time = time.time()
             results, failures = await self.__nvingest_upload_doc(

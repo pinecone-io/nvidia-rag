@@ -33,8 +33,11 @@ from langchain_core.vectorstores import VectorStore
 from pymilvus import connections, utility, Collection, MilvusClient, DataType, MilvusException
 from pymilvus.orm.types import CONSISTENCY_STRONG
 from langchain_milvus import Milvus
+from langchain_pinecone import PineconeVectorStore
+from pinecone import Pinecone, ServerlessSpec
 from langchain_core.runnables import RunnableAssign, RunnableLambda
 from opentelemetry import context as otel_context
+from langchain_core.embeddings import Embeddings
 
 from nvidia_rag.utils.common import get_config
 
@@ -116,6 +119,29 @@ def create_vectorstore_langchain(document_embedder, collection_name: str = "", v
                 f"{config.vector_store.search_type} search type is not supported" + \
                 "Please select from ['hybrid', 'dense']"
             )
+    elif config.vector_store.name == "pinecone":
+        logger.debug("Trying to connect to Pinecone index: %s", collection_name)
+        pinecone_client=Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+        spec = ServerlessSpec(
+            region="us-east-1",
+            cloud="aws"
+        )
+        # Check if the index exists
+        if not pinecone_client.has_index(collection_name):
+            logger.error(f"Index '{collection_name}' does not exist in Pinecone. Creating it...")
+            pinecone_client.create_index(
+                name=collection_name,
+                dimension=document_embedder.dimension,
+                metric=config.vector_store.metric or "cosine",
+                spec=spec
+            )
+        logger.debug(f"Index '{collection_name}' exists. Proceeding with vector store creation.")
+        vectorstore = PineconeVectorStore(
+            index_name=collection_name,
+            embedding=document_embedder
+        )
+        
+        
     else:
         raise ValueError(f"{config.vector_store.name} vector database is not supported")
     logger.debug("Vector store created and saved.")
@@ -136,50 +162,55 @@ def get_vectorstore(
 
 def create_collection(collection_name: str, vdb_endpoint: str, dimension: int = 2048, collection_type: str = "text") -> None:
     """
-    Create a new collection in the Milvus vector database.
-
-    Args:
-        collection_name (str): The name of the collection to be created.
-        vdb_endpoint (str): The Milvus database endpoint.
-        dimension (int): The dimension of the embedding vectors (default: 768).
-        collection_type (str): The type of collection to be created. Reserved for future use.
-
-    Raises:
-        Exception: If the collection was not created successfully.
+    Create a new collection in the vector database (Milvus or Pinecone).
     """
     config = get_config()
-    try:
-        url = urlparse(vdb_endpoint)
-        connection_alias = f"milvus_{url.hostname}_{url.port}"
-        connections.connect(connection_alias, host=url.hostname, port=url.port)
+    if config.vector_store.name == "milvus":
+        try:
+            url = urlparse(vdb_endpoint)
+            connection_alias = f"milvus_{url.hostname}_{url.port}"
+            connections.connect(connection_alias, host=url.hostname, port=url.port)
 
-        create_nvingest_collection(
-            collection_name = collection_name,
-            milvus_uri = vdb_endpoint,
-            sparse = (config.vector_store.search_type == "hybrid"),
-            recreate = False,
-            gpu_index = config.vector_store.enable_gpu_index,
-            gpu_search = config.vector_store.enable_gpu_search,
-            dense_dim = dimension
+            create_nvingest_collection(
+                collection_name = collection_name,
+                milvus_uri = vdb_endpoint,
+                sparse = (config.vector_store.search_type == "hybrid"),
+                recreate = False,
+                gpu_index = config.vector_store.enable_gpu_index,
+                gpu_search = config.vector_store.enable_gpu_search,
+                dense_dim = dimension
             )
-        connections.disconnect(connection_alias)
-    except Exception as e:
-        logger.error(f"Failed to create collection {collection_name}: {str(e)}")
-        raise Exception(f"Failed to create collection {collection_name}: {str(e)}")
+            connections.disconnect(connection_alias)
+        except Exception as e:
+            logger.error(f"Failed to create collection {collection_name}: {str(e)}")
+            raise Exception(f"Failed to create collection {collection_name}: {str(e)}")
+    elif config.vector_store.name == "pinecone":
+        try:
+            pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+            spec = ServerlessSpec(
+                region="us-east-1",
+                cloud="aws"
+            )
+            if not pinecone_client.has_index(collection_name):
+                logger.info(f"Creating Pinecone index: {collection_name}")
+                pinecone_client.create_index(
+                    name=collection_name,
+                    dimension=dimension,
+                    metric=config.vector_store.metric or "cosine",
+                    spec=spec
+                )
+            else:
+                logger.info(f"Pinecone index '{collection_name}' already exists.")
+        except Exception as e:
+            logger.error(f"Failed to create Pinecone index {collection_name}: {str(e)}")
+            raise Exception(f"Failed to create Pinecone index {collection_name}: {str(e)}")
+    else:
+        raise ValueError(f"{config.vector_store.name} vector database is not supported")
 
 
 def create_collections(collection_names: List[str], vdb_endpoint: str, dimension: int = 2048, collection_type: str = "text") -> Dict[str, any]:
     """
-    Create multiple collections in the Milvus vector database.
-
-    Args:
-        vdb_endpoint (str): The Milvus database endpoint.
-        collection_names (List[str]): List of collection names to be created.
-        dimension (int): The dimension of the embedding vectors (default: 768).
-        collection_type (str): The type of collection to be created. Reserved for future use.
-
-    Returns:
-        dict: Response with creation status.
+    Create multiple collections in the vector database (Milvus or Pinecone).
     """
     try:
         if not len(collection_names):
@@ -230,8 +261,7 @@ def create_collections(collection_names: List[str], vdb_endpoint: str, dimension
 
 
 def get_collection(vdb_endpoint: str = "") -> Dict[str, Any]:
-    """get list of all collection in vectorstore along with the number of rows in each collection.
-    """
+    """get list of all collection in vectorstore along with the number of rows in each collection."""
 
     config = get_config()
 
@@ -267,23 +297,31 @@ def get_collection(vdb_endpoint: str = "") -> Dict[str, Any]:
             )
 
         return collection_info
-
+    elif config.vector_store.name == "pinecone":
+        try:
+            pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+            index_names = pinecone_client.list_indexes()
+            collection_info = []
+            for index_name in index_names:
+                try:
+                    stats = pinecone_client.describe_index(index_name)
+                    num_entities = stats.get("status", {}).get("total_record_count", 0)
+                except Exception:
+                    num_entities = 0
+                collection_info.append({"collection_name": index_name, "num_entities": num_entities})
+            return collection_info
+        except Exception as e:
+            logger.error(f"Failed to list Pinecone indexes: {str(e)}")
+            return []
     raise ValueError(f"{config.vector_store.name} vector database does not support collection name")
 
 
 def delete_collections(vdb_endpoint: str, collection_names: List[str]) -> dict:
     """
-    Delete a list of collections from the Milvus vector database.
-
-    Args:
-        vdb_endpoint (str): The Milvus database endpoint.
-        collection_names (List[str]): List of collection names to be deleted.
-
-    Returns:
-        dict: Response with deletion status.
+    Delete a list of collections from the vector database (Milvus or Pinecone).
     """
+    config = get_config()
     try:
-
         if not len(collection_names):
             return {
                 "message": "No collections to delete. Please provide a list of collection names.",
@@ -291,43 +329,65 @@ def delete_collections(vdb_endpoint: str, collection_names: List[str]) -> dict:
                 "failed": [],
                 "total_success": 0,
                 "total_failed": 0 }
+        if config.vector_store.name == "milvus":
+            # Parse endpoint and connect
+            url = urlparse(vdb_endpoint)
+            connection_alias = f"milvus_{url.hostname}_{url.port}"
+            connections.connect(connection_alias, host=url.hostname, port=url.port)
 
-        # Parse endpoint and connect
-        url = urlparse(vdb_endpoint)
-        connection_alias = f"milvus_{url.hostname}_{url.port}"
-        connections.connect(connection_alias, host=url.hostname, port=url.port)
+            deleted_collections = []
+            failed_collections = []
 
-        deleted_collections = []
-        failed_collections = []
-
-        for collection in collection_names:
-            try:
-                if utility.has_collection(collection, using=connection_alias):
-                    utility.drop_collection(collection, using=connection_alias)
-                    deleted_collections.append(collection)
-                    logger.info(f"Deleted collection: {collection}")
-                else:
+            for collection in collection_names:
+                try:
+                    if utility.has_collection(collection, using=connection_alias):
+                        utility.drop_collection(collection, using=connection_alias)
+                        deleted_collections.append(collection)
+                        logger.info(f"Deleted collection: {collection}")
+                    else:
+                        failed_collections.append(collection)
+                        logger.warning(f"Collection {collection} not found.")
+                except Exception as e:
                     failed_collections.append(collection)
-                    logger.warning(f"Collection {collection} not found.")
-            except Exception as e:
-                failed_collections.append(collection)
-                logger.error(f"Failed to delete collection {collection}: {str(e)}")
+                    logger.error(f"Failed to delete collection {collection}: {str(e)}")
 
-        # Disconnect from Milvus
-        connections.disconnect(connection_alias)
+            # Disconnect from Milvus
+            connections.disconnect(connection_alias)
 
-        # Delete the metadata schema from the collection
-        for collection_name in deleted_collections:
-            delete_entities(DEFAULT_METADATA_SCHEMA_COLLECTION, vdb_endpoint, f"collection_name == '{collection_name}'")
+            # Delete the metadata schema from the collection
+            for collection_name in deleted_collections:
+                delete_entities(DEFAULT_METADATA_SCHEMA_COLLECTION, vdb_endpoint, f"collection_name == '{collection_name}'")
 
-        return {
-            "message": "Collection deletion process completed.",
-            "successful": deleted_collections,
-            "failed": failed_collections,
-            "total_success": len(deleted_collections),
-            "total_failed": len(failed_collections)
-        }
-
+            return {
+                "message": "Collection deletion process completed.",
+                "successful": deleted_collections,
+                "failed": failed_collections,
+                "total_success": len(deleted_collections),
+                "total_failed": len(failed_collections)
+            }
+        elif config.vector_store.name == "pinecone":
+            pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+            deleted_collections = []
+            failed_collections = []
+            for collection in collection_names:
+                try:
+                    if pinecone_client.has_index(collection):
+                        pinecone_client.delete_index(collection)
+                        deleted_collections.append(collection)
+                        logger.info(f"Deleted Pinecone index: {collection}")
+                    else:
+                        failed_collections.append(collection)
+                        logger.warning(f"Pinecone index {collection} not found.")
+                except Exception as e:
+                    failed_collections.append(collection)
+                    logger.error(f"Failed to delete Pinecone index {collection}: {str(e)}")
+            return {
+                "message": "Collection deletion process completed.",
+                "successful": deleted_collections,
+                "failed": failed_collections,
+                "total_success": len(deleted_collections),
+                "total_failed": len(failed_collections)
+            }
     except Exception as e:
         logger.error(f"Failed to delete collections due to error: {str(e)}")
         return {
@@ -341,24 +401,21 @@ def delete_collections(vdb_endpoint: str, collection_names: List[str]) -> dict:
 def get_docs_vectorstore_langchain(
         vectorstore: VectorStore,
         collection_name: str,
-        vdb_endpoint: str
+        vdb_endpoint: str,
+        namespace: str = ""
     ) -> List[Dict[str, Any]]:
-    """Retrieves filenames stored in the vector store implemented in LangChain."""
+    """Retrieves filenames (vector IDs) stored in the vector store implemented in LangChain."""
 
     settings = get_config()
     try:
-        # No API available in LangChain for listing the docs, thus using its private _dict
         extract_filename = lambda metadata: os.path.basename(metadata['source'] if type(metadata['source']) == str else metadata.get('source').get('source_name'))  # noqa: E731
-
         metadata_schema = get_metadata_schema(collection_name, vdb_endpoint)
 
         if settings.vector_store.name == "milvus":
-            # Getting all the ID's > 0
             if vectorstore.col:
                 milvus_data = vectorstore.col.query(expr="pk >= 0", output_fields=["pk", "source", "content_metadata"])
                 filepaths_added = set()
                 documents_list = list()
-
                 for item in milvus_data:
                     if extract_filename(item) not in filepaths_added:
                         metadata_dict = {}
@@ -373,8 +430,18 @@ def get_docs_vectorstore_langchain(
                             }
                         )
                     filepaths_added.add(extract_filename(item))
-
                 return documents_list
+        elif settings.vector_store.name == "pinecone":
+            from pinecone.grpc import PineconeGRPC as Pinecone
+            pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+            index = pinecone_client.Index(name=collection_name)
+            # Use list_paginated to fetch up to 100 IDs in a single call
+            results = index.list_paginated(limit=100, namespace=namespace or None)
+            ids = [v["id"] for v in results.get("vectors", [])]
+            documents_list = [
+                {"document_name": doc_id, "metadata": {}} for doc_id in ids
+            ]
+            return documents_list
     except Exception as e:
         logger.error("Error occurred while retrieving documents: %s", e)
     return []
@@ -384,19 +451,16 @@ def del_docs_vectorstore_langchain(vectorstore: VectorStore, filenames: List[str
     """Delete documents from the vector index implemented in LangChain."""
 
     settings = get_config()
-
     if include_upload_path:
         upload_folder = str(Path(os.path.join(settings.temp_dir,
                                      f"uploaded_files/{collection_name}")))
     else:
         upload_folder = ""
-
     deleted = False
     try:
         for filename in filenames:
             source_value =  os.path.join(upload_folder, filename)
             if settings.vector_store.name == "milvus":
-                # Delete Milvus Entities
                 logger.info(f"Deleting document {source_value} from collection {collection_name} at {settings.vector_store.url}")
                 try:
                     resp = vectorstore.col.delete(f"source['source_name'] == '{source_value}'")
@@ -407,11 +471,17 @@ def del_docs_vectorstore_langchain(vectorstore: VectorStore, filenames: List[str
                 if resp.delete_count == 0:
                     logger.info("File does not exist in the vectorstore")
                     return False
+            elif settings.vector_store.name == "pinecone":
+                # For Pinecone, delete by ID (filename as ID) if possible
+                try:
+                    vectorstore.delete(ids=[filename])
+                    deleted = True
+                except Exception as e:
+                    logger.error(f"Failed to delete document {filename} from Pinecone: {e}")
         if deleted and settings.vector_store.name == "milvus":
-            # Force flush the vectorstore after deleting documents to ensure that the changes are reflected in the vectorstore
             vectorstore.col.flush()
-        return True
-    except Exception as e: #TODO - propagate the exception
+        return deleted
+    except Exception as e:
         logger.error("Error occurred while deleting documents: %s", e)
         return False
 
