@@ -79,3 +79,9 @@ coverage.xml
 cover/
 
 # Workbench Project Layout
+
+# Jupyter Notebook scratchpads
+.virtual_documents/
+
+# env files
+.env

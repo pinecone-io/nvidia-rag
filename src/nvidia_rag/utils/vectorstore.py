@@ -119,13 +119,16 @@ def create_vectorstore_langchain(document_embedder, collection_name: str = "", v
                 f"{config.vector_store.search_type} search type is not supported" + \
                 "Please select from ['hybrid', 'dense']"
             )
-    elif config.vector_store.name == "pinecone":
-        logger.debug("Trying to connect to Pinecone index: %s", collection_name)
-        pinecone_client=Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+    elif config.vector_store.name == "pinecone" or config.vector_store.name == "pinecone-local":
+        if config.vector_store.name == "pinecone":
+            pinecone_client=Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+        else:
+            pinecone_client=Pinecone(api_key="pclocal", host="http://localhost:5080")
         spec = ServerlessSpec(
             region="us-east-1",
             cloud="aws"
         )
+        logger.debug("Trying to connect to Pinecone index: %s", collection_name)
         # Check if the index exists
         if not pinecone_client.has_index(collection_name):
             logger.error(f"Index '{collection_name}' does not exist in Pinecone. Creating it...")
@@ -140,8 +143,6 @@ def create_vectorstore_langchain(document_embedder, collection_name: str = "", v
             index_name=collection_name,
             embedding=document_embedder
         )
-        
-        
     else:
         raise ValueError(f"{config.vector_store.name} vector database is not supported")
     logger.debug("Vector store created and saved.")
@@ -184,9 +185,12 @@ def create_collection(collection_name: str, vdb_endpoint: str, dimension: int = 
         except Exception as e:
             logger.error(f"Failed to create collection {collection_name}: {str(e)}")
             raise Exception(f"Failed to create collection {collection_name}: {str(e)}")
-    elif config.vector_store.name == "pinecone":
-        try:
+    elif config.vector_store.name == "pinecone" or config.vector_store.name == "pinecone-local":
+        if config.vector_store.name == "pinecone":
             pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+        else:
+            pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
+        try:
             spec = ServerlessSpec(
                 region="us-east-1",
                 cloud="aws"
@@ -297,9 +301,12 @@ def get_collection(vdb_endpoint: str = "") -> Dict[str, Any]:
             )
 
         return collection_info
-    elif config.vector_store.name == "pinecone":
-        try:
+    elif config.vector_store.name == "pinecone" or config.vector_store.name == "pinecone-local":
+        if config.vector_store.name == "pinecone":
             pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+        else:
+            pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
+        try:
             index_names = pinecone_client.list_indexes()
             collection_info = []
             for index_name in index_names:
@@ -313,6 +320,7 @@ def get_collection(vdb_endpoint: str = "") -> Dict[str, Any]:
         except Exception as e:
             logger.error(f"Failed to list Pinecone indexes: {str(e)}")
             return []
+
     raise ValueError(f"{config.vector_store.name} vector database does not support collection name")
 
 
@@ -365,8 +373,11 @@ def delete_collections(vdb_endpoint: str, collection_names: List[str]) -> dict:
                 "total_success": len(deleted_collections),
                 "total_failed": len(failed_collections)
             }
-        elif config.vector_store.name == "pinecone":
-            pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+        elif config.vector_store.name == "pinecone" or config.vector_store.name == "pinecone-local":
+            if config.vector_store.name == "pinecone":
+                pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+            else:
+                pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
             deleted_collections = []
             failed_collections = []
             for collection in collection_names:
@@ -388,6 +399,8 @@ def delete_collections(vdb_endpoint: str, collection_names: List[str]) -> dict:
                 "total_success": len(deleted_collections),
                 "total_failed": len(failed_collections)
             }
+        else:
+            raise ValueError(f"{config.vector_store.name} vector database is not supported")
     except Exception as e:
         logger.error(f"Failed to delete collections due to error: {str(e)}")
         return {

@@ -13,7 +13,6 @@ Use the following documentation to get started with the NVIDIA RAG Blueprint.
 - [Deploy With Helm Chart](#deploy-with-helm-chart)
 - [Data Ingestion](#data-ingestion)
 
-
 ## Obtain an API Key
 
 You need to generate an API key
@@ -34,7 +33,6 @@ After you generate your key, export your key as an environment variable by using
 export NGC_API_KEY="<your-ngc-api-key>"
 ```
 
-
 ## Interact using native python APIs
 
 You can interact with and deploy the NVIDIA RAG Blueprint directly from Python using the provided Jupyter notebook. This approach is ideal for users who prefer a programmatic interface for setup, ingestion, and querying, or for those who want to automate workflows and integrate with other Python tools.
@@ -42,7 +40,6 @@ You can interact with and deploy the NVIDIA RAG Blueprint directly from Python u
 - **Notebook:** [rag_library_usage.ipynb](../notebooks/rag_library_usage.ipynb)
 
 The notebook demonstrates environment setup, document ingestion, collection management, and querying using the NVIDIA RAG Python client. Follow the cells in the notebook for an end-to-end example of using the RAG system natively from Python.
-
 
 ## Deploy With Docker Compose
 
@@ -76,7 +73,6 @@ For both retrieval and ingestion services, by default all the models are deploye
 
 5. Ensure you meet [the hardware requirements if you are deploying models on-prem](./support-matrix.md).
 
-
 ### Start using on-prem models
 
 Use the following procedure to start all containers needed for this blueprint. This launches the ingestion services followed by the rag services and all of its dependent NIMs on-prem.
@@ -99,11 +95,13 @@ Use the following procedure to start all containers needed for this blueprint. T
    [Optional]:
    Check out the guidance here for some [best practices] for choosing configurations(./accuracy_perf.md).
    To turn on recommended configs for accuracy optimized profile set additional configs:
+
    ```bash
    source deploy/compose/accuracy_profile.env
    ```
 
    To turn on recommended configs for perf optimized profile set additional configs:
+
    ```bash
    source deploy/compose/perf_profile.env
    ```
@@ -122,6 +120,7 @@ Use the following procedure to start all containers needed for this blueprint. T
    - The nemo LLM service may take upto 30 mins to start for the first time as the model is downloaded and cached. The models are downloaded and cached in the path specified by `MODEL_DIRECTORY`. Subsequent deployments will take 2-5 mins to startup based on the GPU profile.
 
    - The default configuration allocates one GPU (GPU ID 1) to `nim-llm-ms` which defaults to minimum GPUs needed for H100 or B200 profile. If you are deploying the solution on A100, please allocate 2 available GPUs by exporting below env variable before launching:
+
      ```bash
      export LLM_MS_GPU_ID=1,2
      ```
@@ -146,19 +145,21 @@ Use the following procedure to start all containers needed for this blueprint. T
         nim-llm-ms                              Up 14 minutes (healthy)
      ```
 
+5. Uncomment the vector db section you'll use and start the vector db containers from the repo root.
 
-5. Start the vector db containers from the repo root.
    ```bash
    docker compose -f deploy/compose/vectordb.yaml up -d
    ```
 
    [!TIP]
    By default GPU accelerated Milvus DB is deployed. You can choose the GPU ID to be allocated using below env variable.
+
    ```bash
    VECTORSTORE_GPU_DEVICE_ID=0
    ```
 
    For B200 and A100 GPUs, use Milvus CPU indexing due to known retrieval accuracy issues with Milvus GPU indexing and search. Export following environment variables to disable Milvus GPU ingexing and search.
+
    ```bash
    export APP_VECTORSTORE_ENABLEGPUSEARCH=False
    export APP_VECTORSTORE_ENABLEGPUINDEX=False
@@ -191,6 +192,7 @@ Use the following procedure to start all containers needed for this blueprint. T
    ```
 
    You can check the status of the rag-server and its dependencies by issuing this curl command
+
    ```bash
    curl -X 'GET' 'http://workstation_ip:8081/v1/health?check_dependencies=true' -H 'accept: application/json'
    ```
@@ -225,6 +227,7 @@ Use the following procedure to start all containers needed for this blueprint. T
 9.  Open a web browser and access `http://localhost:8090` to use the RAG Playground. You can use the upload tab to ingest files into the server or follow [the notebooks](../notebooks/) to understand the API usage.
 
 10. To stop all running services, after making some [customizations](#next-steps)
+
     ```bash
     docker compose -f deploy/compose/docker-compose-ingestor-server.yaml down
     docker compose -f deploy/compose/nims.yaml down
@@ -235,6 +238,7 @@ Use the following procedure to start all containers needed for this blueprint. T
 **📝 Notes:**
 
 1. A single NVIDIA A100-80GB or H100-80GB, B200 GPU can be used to start non-LLM NIMs (nemoretriever-embedding-ms, nemoretriever-ranking-ms, and ingestion services like page-elements, paddle, graphic-elements, and table-structure) for ingestion and RAG workflows. You can control which GPU is used for each service by setting these environment variables in `deploy/compose/.env` file before launching:
+
    ```bash
    EMBEDDING_MS_GPU_ID=0
    RANKING_MS_GPU_ID=0
@@ -271,13 +275,13 @@ Use the following procedure to start all containers needed for this blueprint. T
    NEXT_PUBLIC_VDB_BASE_URL: "http://ingestor-server:8082/v1"
    ```
 
-
 ### Start using nvidia hosted models
 
 1. Verify that you meet the [prerequisites](#prerequisites).
 
 2. Open `deploy/compose/.env` and uncomment the section `Endpoints for using cloud NIMs`.
    Then set the environment variables by executing below command.
+
    ```bash
    source deploy/compose/.env
    ```
@@ -285,11 +289,13 @@ Use the following procedure to start all containers needed for this blueprint. T
    [Optional]:
    Check out the guidance here for some [best practices] for choosing configurations(./accuracy_perf.md).
    To turn on recommended configs for accuracy optimized profile set additional configs:
+
    ```bash
    source deploy/compose/accuracy_profile.env
    ```
 
    To turn on recommended configs for perf optimized profile set additional configs:
+
    ```bash
    source deploy/compose/perf_profile.env
    ```
@@ -298,14 +304,17 @@ Use the following procedure to start all containers needed for this blueprint. T
    When using NVIDIA hosted endpoints, you may encounter rate limiting with larger file ingestions (>10 files).
 
 3. Start the vector db containers from the repo root.
+
    ```bash
    docker compose -f deploy/compose/vectordb.yaml up -d
    ```
+
    [!NOTE]
    If you don't have a GPU available, you can switch to CPU-only Milvus by following the instructions in [milvus-configuration.md](./milvus-configuration.md).
 
    [!TIP]
    For B200 and A100 GPUs, use Milvus CPU indexing due to known retrieval accuracy issues with Milvus GPU indexing and search. Export following environment variables to disable Milvus GPU ingexing and search.
+
    ```bash
    export APP_VECTORSTORE_ENABLEGPUSEARCH=False
    export APP_VECTORSTORE_ENABLEGPUINDEX=False
@@ -338,6 +347,7 @@ Use the following procedure to start all containers needed for this blueprint. T
    ```
 
    You can check the status of the rag-server and its dependencies by issuing this curl command
+
    ```bash
    curl -X 'GET' 'http://workstation_ip:8081/v1/health?check_dependencies=true' -H 'accept: application/json'
    ```
@@ -365,17 +375,16 @@ Use the following procedure to start all containers needed for this blueprint. T
 7. Open a web browser and access `http://localhost:8090` to use the RAG Playground. You can use the upload tab to ingest files into the server or follow [the notebooks](../notebooks/) to understand the API usage.
 
 8. To stop all running services, after making some [customizations](#next-steps)
+
     ```bash
     docker compose -f deploy/compose/docker-compose-ingestor-server.yaml down
     docker compose -f deploy/compose/docker-compose-rag-server.yaml down
     docker compose -f deploy/compose/vectordb.yaml down
     ```
 
-
 ## Deploy With Helm Chart
 
 Use these procedures to deploy with Helm Chart to deploy on a Kubernetes cluster. Alternatively, you can [Deploy With Docker Compose](#deploy-with-docker-compose) for a single node deployment.
-
 
 ### Prerequisites
 
@@ -430,6 +439,7 @@ Use these procedures to deploy with Helm Chart to deploy on a Kubernetes cluster
    ```
 
 **Change directory to deploy/helm/**
+
    ```sh
    cd deploy/helm/
    ```
@@ -485,11 +495,11 @@ spec:
 kubectl delete pod <embedqa-pod-name>  -n rag
 ```
 
-
 [!TIP]
 For B200 and A100 GPUs, it is recommended to use CPU indexing and search for better response. You can set this by either:
 
 1. Using helm set command:
+
 ```sh
 helm upgrade --install rag -n rag https://helm.ngc.nvidia.com/nvidia/blueprint/charts/nvidia-blueprint-rag-v2.2.0.tgz \
 --username '$oauthtoken' \
@@ -501,6 +511,7 @@ helm upgrade --install rag -n rag https://helm.ngc.nvidia.com/nvidia/blueprint/c
 ```
 
 2. Or by modifying values.yaml:
+
 ```yaml
 ingestor-server:
   envVars:
@@ -512,7 +523,6 @@ ingestor-server:
 
 > [!NOTE]
 > To deploy the Helm chart within 4xH100 using MIG slicing, see [RAG Deployment with MIG Support](./mig-deployment.md).
-
 
 #### Deploying E2E From the Source (Optional)
 
@@ -572,11 +582,13 @@ nim-llm:
 #### Verifying Deployment
 
 ##### List Pods
+
 ```sh
 kubectl get pods -n rag
 ```
 
 ##### Expected Output
+
 ```sh
 NAME                                                        READY   STATUS    RESTARTS      AGE
 ingestor-server-7bcff75fbb-s655f                            1/1     Running   0             23m
@@ -600,17 +612,19 @@ rag-zipkin-5dc8d6d977-nqvvc                                 1/1     Running   0 
 ```
 
 > **Note:** It takes around 5 minutes for all pods to come up. Check K8s events using
+
    ```sh
    kubectl get events -n rag
    ```
 
-
 ##### List Services
+
 ```sh
 kubectl get svc -n rag
 ```
 
 ##### Expected Output
+
 ```sh
 NAME                                TYPE            EXTERNAL-IP   PORT(S)                                                   AGE
 ingestor-server                     ClusterIP      <none>        8082/TCP                                                  26m
@@ -640,6 +654,7 @@ rag-zipkin                          ClusterIP      <none>        9411/TCP       
 
 #### Patching the deployment
 For patching an existing deployment, modify `values.yaml` with required changes and run
+
 ```sh
 helm upgrade --install rag -n rag https://helm.ngc.nvidia.com/nvidia/blueprint/charts/nvidia-blueprint-rag-v2.2.0.tgz \
 --username '$oauthtoken' \
@@ -745,6 +760,7 @@ To enable tracing and view the Zipkin or Grafana UI, follow these steps:
 #### Cleanup
 
 To uninstall the deployment, run:
+
 ```sh
 helm uninstall rag -n rag
 ```
@@ -936,7 +952,6 @@ For troubleshooting issues with Helm deployment, checkout the troubleshooting se
 [!IMPORTANT]
 Before you can use this procedure, you must deploy the blueprint by using [Deploy With Docker Compose](#deploy-with-docker-compose) or [Deploy With Helm Chart](#deploy-with-helm-chart).
 
-
 1. Download and install Git LFS by following the [installation instructions](https://git-lfs.com/).
 
 2. Initialize Git LFS in your environment.
@@ -971,8 +986,6 @@ Follow the cells in the notebook to ingest the PDF files from the data/dataset f
 > **Important Configuration Tip**
 >
 > Check out the [best practices guide](accuracy_perf.md) especially the **Vector Store Retriever Consistency Level** section to configure the required settings before starting the ingestion/retrieval process based on your use case.
-
-
 
 ## Next Steps
 
