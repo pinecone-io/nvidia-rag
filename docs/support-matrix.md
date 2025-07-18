@@ -38,7 +38,7 @@ The overall hardware requirements depend on whether you
 The NIM and hardware requirements only need to be met if you are self-hosting them with default settings of RAG.
 See [Using self-hosted NVIDIA NIM microservices](quickstart.md#deploy-with-docker-compose).
 
-- **Pipeline operation**: 1x L40 GPU or similar recommended. It is needed for Milvus vector store database, as GPU acceleration is enabled by default.
+- **Pipeline operation**: 1x L40 GPU or similar recommended. It is needed for vector store database operations, as GPU acceleration is enabled by default.
 - **LLM NIM**: [NVIDIA llama-3.3-nemotron-super-49b-v1](https://docs.nvidia.com/nim/large-language-models/latest/supported-models.html#id83)
   - For improved paralleled performance, we recommend 8x or more H100s/A100s/B200s for LLM inference.
 - **Embedding NIM**: [Llama-3.2-NV-EmbedQA-1B-v2 Support Matrix](https://docs.nvidia.com/nim/nemo-retriever/text-embedding/latest/support-matrix.html#llama-3-2-nv-embedqa-1b-v2)

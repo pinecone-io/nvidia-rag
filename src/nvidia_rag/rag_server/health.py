@@ -15,7 +15,7 @@
 """This defines the health check for the services used by the rag-server.
 1. check_service_health(): Check the health of a service endpoint asynchronously.
 2. check_minio_health(): Check the health of the MinIO server.
-3. check_milvus_health(): Check the health of the Milvus database.
+3. check_pinecone_health(): Check the health of the Pinecone database.
 4. check_all_services_health(): Check the health of all services used by the application.
 5. print_health_report(): Print the health report for the services used by the application.
 6. check_and_print_services_health(): Check the health of all services and print a report.
@@ -27,7 +27,6 @@ import asyncio
 import os
 import logging
 from typing import Dict, Optional, List, Any
-from pymilvus import connections, utility
 from urllib.parse import urlparse
 
 from nvidia_rag.utils.minio_operator import MinioOperator
@@ -134,10 +133,10 @@ async def check_minio_health(endpoint: str, access_key: str, secret_key: str) ->
 
     return status
 
-async def check_milvus_health(url: str) -> Dict[str, Any]:
-    """Check Milvus database health"""
+async def check_pinecone_health(url: str) -> Dict[str, Any]:
+    """Check Pinecone database health"""
     status = {
-        "service": "Milvus",
+        "service": "Pinecone",
         "url": url,
         "status": "unknown",
         "error": None
@@ -150,25 +149,23 @@ async def check_milvus_health(url: str) -> Dict[str, Any]:
 
     try:
         start_time = time.time()
-        parsed_url = urlparse(url)
-        connection_alias = f"health_check_{parsed_url.hostname}_{parsed_url.port}_{int(time.time())}"
+        config = get_config()
+        
+        if config.vector_store.name == "pinecone":
+            from pinecone import Pinecone
+            pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+        elif config.vector_store.name == "pinecone-local":
+            from pinecone import Pinecone
+            pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
+        else:
+            raise ValueError(f"Unsupported vector store: {config.vector_store.name}")
 
-        # Connect to Milvus
-        connections.connect(
-            connection_alias,
-            host=parsed_url.hostname,
-            port=parsed_url.port
-        )
-
-        # Test basic operation - list collections
-        collections = utility.list_collections(using=connection_alias)
-
-        # Disconnect
-        connections.disconnect(connection_alias)
+        # Test basic operation - list indexes
+        indexes = pinecone_client.list_indexes()
 
         status["status"] = "healthy"
         status["latency_ms"] = round((time.time() - start_time) * 1000, 2)
-        status["collections"] = len(collections)
+        status["indexes"] = len(indexes)
     except Exception as e:
         status["status"] = "error"
         status["error"] = str(e)
@@ -213,9 +210,9 @@ async def check_all_services_health() -> Dict[str, List[Dict[str, Any]]]:
             secret_key=minio_secret_key
         )))
 
-    # Vector DB (Milvus) health check
+    # Vector DB (Pinecone) health check
     if config.vector_store.url:
-        tasks.append(("databases", check_milvus_health(config.vector_store.url)))
+        tasks.append(("databases", check_pinecone_health(config.vector_store.url)))
 
     # LLM service health check
     if config.llm.server_url and not is_nvidia_api_catalog_url(config.llm.server_url):

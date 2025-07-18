@@ -1,0 +1,14 @@
+aiohttp
+jupyterlab>3.0
+dataclass-wizard
+langchain
+langchain-core
+langchain-openai
+langchain-community
+langchain-milvus
+langchain-nvidia-ai-endpoints
+langchain-pinecone
+pinecone
+pymilvus
+opentelemetry-api
+opentelemetry-sdk

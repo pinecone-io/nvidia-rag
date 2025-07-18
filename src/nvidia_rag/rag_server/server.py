@@ -239,7 +239,7 @@ class Prompt(BaseModel):
     #           (JSON responses are prefixed by data:), with the stream terminated by a data: [DONE] message.")
 
     filter_expr: str = Field(
-        description="Filter expression to filter the retrieved documents from Milvus collection.",
+        description="Filter expression to filter the retrieved documents from vector database collection.",
         default='',
         max_length=4096,
         pattern=r'[\s\S]*',
@@ -344,7 +344,7 @@ class DocumentSearch(BaseModel):
     )
 
     filter_expr: str = Field(
-        description="Filter expression to filter the retrieved documents from Milvus collection.",
+        description="Filter expression to filter the retrieved documents from vector database collection.",
         default='',
         max_length=4096,
         pattern=r'[\s\S]*',

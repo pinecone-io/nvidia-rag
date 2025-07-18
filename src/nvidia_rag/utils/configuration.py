@@ -30,28 +30,28 @@ class VectorStoreConfig(ConfigWizard):
 
     name: str = configfield(
         "name",
-        default="milvus",
-        help_txt="The name of vector store",  # supports milvus
+        default="pinecone",
+        help_txt="The name of vector store",  # supports pinecone and pinecone-local
     )
     url: str = configfield(
         "url",
-        default="http://localhost:19530",
+        default="http://localhost:5080",
         help_txt="The host of the machine running Vector Store DB",
     )
     nlist: int = configfield(
         "nlist",
         default=64,
-        help_txt="Number of cluster units",  # IVF Flat milvus
+        help_txt="Number of cluster units",  # For future vector store implementations
     )
     nprobe: int = configfield(
         "nprobe",
         default=16,
-        help_txt="Number of units to query",  # IVF Flat milvus
+        help_txt="Number of units to query",  # For future vector store implementations
     )
     index_type: str = configfield(
         "index_type",
         default="GPU_CAGRA",
-        help_txt="Index of the vector db",  # IVF Flat for milvus
+        help_txt="Index of the vector db",  # For future vector store implementations
     )
 
     enable_gpu_index: bool = configfield(
@@ -84,6 +84,18 @@ class VectorStoreConfig(ConfigWizard):
         default="Strong", # "Bounded", "Strong", "Session"
         env_name="APP_VECTORSTORE_CONSISTENCYLEVEL",
         help_txt="Consistency level for vector store",
+    )
+
+    metric: str = configfield(
+        "metric",
+        default="cosine",
+        help_txt="Metric for vector store",
+    )
+
+    dimension: int = configfield(
+        "dimension",
+        default=2048,
+        help_txt="Dimension for vector store",
     )
 
 

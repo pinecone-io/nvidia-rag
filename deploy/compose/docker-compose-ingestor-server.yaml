@@ -25,9 +25,11 @@ services:
 
       ##===Vector DB specific configurations===
       # URL on which vectorstore is hosted
-      APP_VECTORSTORE_URL: "http://milvus:19530"
+      #APP_VECTORSTORE_URL: "http://milvus:19530"
+      APP_VECTORSTORE_URL: "http://pinecone:5080"
       # Type of vectordb used to store embedding supported type milvus
-      APP_VECTORSTORE_NAME: "milvus"
+      #APP_VECTORSTORE_NAME: "milvus"
+      APP_VECTORSTORE_NAME: "pinecone"
       # Type of vectordb search to be used
       APP_VECTORSTORE_SEARCHTYPE: ${APP_VECTORSTORE_SEARCHTYPE:-"dense"} # Can be dense or hybrid
       # Boolean to enable GPU index for milvus vectorstore specific to nvingest
@@ -112,7 +114,7 @@ services:
 
   nv-ingest-ms-runtime:
     image: nvcr.io/nvidia/nemo-microservices/nv-ingest:25.6.2
-    cpuset: "0-15"
+    cpuset: "0-9"
     volumes:
       - ${DATASET_ROOT:-./data}:/workspace/data
     ports:

@@ -51,24 +51,26 @@ services:
 #      interval: 30s
 #      timeout: 20s
 #      retries: 3
-#
-#  minio:
-#    container_name: milvus-minio
-#    image: minio/minio:RELEASE.2025-02-28T09-55-16Z
-#    environment:
-#      MINIO_ACCESS_KEY: minioadmin
-#      MINIO_SECRET_KEY: minioadmin
-#    ports:
-#      - "9011:9011"
-#      - "9010:9010"
-#    volumes:
-#      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
-#    command: minio server /minio_data --console-address ":9011" --address ":9010"
-#    healthcheck:
-#      test: ["CMD", "curl", "-f", "http://localhost:9010/minio/health/live"]
-#      interval: 30s
-#      timeout: 20s
-#      retries: 3
+
+# MinIO is used for bulk upload to the vector store.
+# It is not used for the vector store itself.
+  minio:
+    container_name: minio
+    image: minio/minio:RELEASE.2025-02-28T09-55-16Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9011:9011"
+      - "9010:9010"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
+    command: minio server /minio_data --console-address ":9011" --address ":9010"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9010/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
 
 # To use Pinecone locally, uncomment the following section and comment out the Milvus section above.
   pinecone:

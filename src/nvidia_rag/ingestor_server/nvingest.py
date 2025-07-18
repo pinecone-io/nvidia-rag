@@ -133,30 +133,11 @@ def get_nv_ingest_ingestor(
     # Add Vector-DB upload task
     if ENABLE_NV_INGEST_VDB_UPLOAD:
         vdb_upload_kwargs = {}
-        if config.vector_store.name == "milvus":
+        if config.vector_store.name == "pinecone" or config.vector_store.name == "pinecone-local":
             vdb_upload_kwargs = {
-                "collection_name": collection_name,
-                "milvus_uri": vdb_endpoint or config.vector_store.url,
-                "minio_endpoint": os.getenv("MINIO_ENDPOINT"),
-                "access_key": os.getenv("MINIO_ACCESSKEY"),
-                "secret_key": os.getenv("MINIO_SECRETKEY"),
-                "sparse": (config.vector_store.search_type == "hybrid"),
-                "enable_images": config.nv_ingest.extract_images,
-                "recreate": False,
-                "dense_dim": config.embeddings.dimensions,
-                "gpu_index": config.vector_store.enable_gpu_index,
-                "gpu_search": config.vector_store.enable_gpu_search,
-            }
-            if csv_file_path is not None:
-                vdb_upload_kwargs.update({
-                    "meta_dataframe": csv_file_path,
-                    "meta_source_field": meta_source_field,
-                    "meta_fields": meta_fields,
-                })
-        elif config.vector_store.name == "pinecone":
-            vdb_upload_kwargs = {
-                "pinecone_api_key": os.getenv("PINECONE_API_KEY"),
+                "pinecone_api_key": os.getenv("PINECONE_API_KEY") if config.vector_store.name == "pinecone" else "pclocal",
                 "pinecone_index": collection_name,
+                "pinecone_host": "http://localhost:5080" if config.vector_store.name == "pinecone-local" else None,
                 # Optionally add namespace or other Pinecone params here
             }
             if csv_file_path is not None:

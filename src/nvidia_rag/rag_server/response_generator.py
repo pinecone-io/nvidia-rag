@@ -30,7 +30,6 @@ import asyncio
 from typing import Dict, Any, Generator, List, Union
 from uuid import uuid4
 from langchain_core.documents import Document
-from pymilvus.exceptions import MilvusException, MilvusUnavailableException
 from pydantic import BaseModel, Field, validator
 from typing import Literal, Optional
 
@@ -199,8 +198,10 @@ class Message(BaseModel):
     @validator('content')
     @classmethod
     def sanitize_content(cls, v):
-        """ Feild validator function to santize user populated feilds from HTML"""
-        return bleach.clean(v, strip=True)
+        """ Field validator function to sanitize content"""
+        if v:
+            v = bleach.clean(v, strip=True)
+        return v
 
 class ChainResponseChoices(BaseModel):
     """ Definition of Chain response choices"""
@@ -223,41 +224,38 @@ class ChainResponse(BaseModel):
     usage: Optional[Usage] = Field(default=Usage(), description="Token usage statistics")
     citations: Optional[Citations] = Field(default=Citations(), description="Source documents used for the response")
 
-
 def prepare_llm_request(messages: List[Dict[str, str]], **kwargs) -> Dict[str, Any]:
-    """Prepare the request for the LLM response generation."""
+    """
+    Prepare the request for the LLM response generation
+    Arguments:
+        - messages: List of messages to be sent to the LLM
+        - **kwargs: Additional arguments to be passed to the LLM
+    Returns:
+        - request: Dict containing the prepared request
+    """
+    request = {
+        "messages": messages,
+        "stream": True,
+        "temperature": kwargs.get("temperature", 0.2),
+        "max_tokens": kwargs.get("max_tokens", 1024),
+        "top_p": kwargs.get("top_p", 0.9),
+        "frequency_penalty": kwargs.get("frequency_penalty", 0.0),
+        "presence_penalty": kwargs.get("presence_penalty", 0.0),
+        "stop": kwargs.get("stop", None),
+        "seed": kwargs.get("seed", None),
+        "tools": kwargs.get("tools", None),
+        "tool_choice": kwargs.get("tool_choice", None),
+        "response_format": kwargs.get("response_format", None),
+        "logit_bias": kwargs.get("logit_bias", None),
+        "user": kwargs.get("user", None),
+        "function_call": kwargs.get("function_call", None),
+        "functions": kwargs.get("functions", None),
+    }
 
-    logger.debug(f"Prompt: {messages}")
-    chat_history = [msg for msg in messages if not (msg.get('role') == 'assistant' and not msg.get('content', '').strip())]
+    # Remove None values
+    request = {k: v for k, v in request.items() if v is not None}
 
-    # Find the last user message and its index
-    last_user_message = None
-    last_user_index = None
-    for i in range(len(chat_history) - 1, -1, -1):
-        if chat_history[i].get('role') == 'user':
-            last_user_message = chat_history[i].get('content')
-            last_user_index = i
-            break
-
-    if last_user_message:
-        last_user_message = escape_json_content(last_user_message)
-
-    # Process chat history and escape JSON-like structures
-    processed_chat_history = []
-    for i, message in enumerate(chat_history):
-        if i == last_user_index:
-            # Skip only the last user message as it's handled separately
-            continue
-        # Create new Message with escaped content
-        processed_message = {
-            'role': message.get('role'),
-            'content': escape_json_content(message.get('content', ''))
-        }
-        processed_chat_history.append(processed_message)
-
-    logger.debug(f"User query: {last_user_message}, Chat history: {processed_chat_history}")
-    return last_user_message, processed_chat_history
-
+    return request
 
 async def generate_answer(
     generator: 'Generator[str]',
@@ -266,74 +264,51 @@ async def generate_answer(
     collection_name: str = "",
     enable_citations: bool = True
 ):
-    """Generate and stream the response to the provided prompt.
-
-    Args:
-        generator: Generator that yields response chunks
-        contexts: List of context documents used for generation
-        model: Name of the model used for generation
-        collection_name: Name of the collection used for retrieval
-        enable_citations: Whether to enable citations in the response
     """
-
+    Generate and stream the response to the provided prompt
+    Arguments:
+        - generator: Generator object that yields response chunks
+        - contexts: List of context documents
+        - model: Model name for the response
+        - collection_name: Name of the collection
+        - enable_citations: Whether to enable citations
+    Yields:
+        - response_chunk: Stream of response chunks
+    """
     try:
-        # unique response id for every query
         resp_id = str(uuid4())
-        if generator:
-            logger.debug("Generated response chunks\n")
-            # Create ChainResponse object for every token generated
-            first_chunk = True
-            start_time = time.time()
-            for chunk in generator:
-                # TODO: This is a hack to clear contexts if we get an error response from nemoguardrails
-                if chunk == "I'm sorry, I can't respond to that.":
-                    # Clear contexts if we get an error response
-                    contexts = list()
-                chain_response = ChainResponse()
+        for chunk in generator:
+            if chunk:
                 response_choice = ChainResponseChoices(
                     index=0,
                     message=Message(role="assistant", content=chunk),
                     delta=Message(role=None, content=chunk),
                     finish_reason=None
                 )
+                chain_response = ChainResponse(
+                    id=resp_id,
+                    choices=[response_choice],
+                    model=model,
+                    object="chat.completion.chunk",
+                    created=int(time.time()),
+                    citations=prepare_citations(contexts, enable_citations=enable_citations) if enable_citations else None
+                )
                 chain_response.id = resp_id
                 chain_response.choices.append(response_choice)  # pylint: disable=E1101
                 chain_response.model = model
                 chain_response.object = "chat.completion.chunk"
                 chain_response.created = int(time.time())
-                if first_chunk:
-                    logger.info("    == LLM Time to First Token (TTFT): %.2f ms ==", (time.time() - start_time) * 1000)
-                    chain_response.citations = prepare_citations(
-                        retrieved_documents=contexts,
-                        enable_citations=enable_citations,
-                    )
-                    first_chunk = False
                 logger.debug(response_choice)
-                # Send generator with tokens in ChainResponse format
+                yield "data: " + str(chain_response.json()) + "\n\n"
+            else:
+                chain_response = ChainResponse()
                 yield "data: " + str(chain_response.json()) + "\n\n"
 
-            chain_response = ChainResponse()
-
-            # [DONE] indicate end of response from server
-            response_choice = ChainResponseChoices(
-                finish_reason="stop",
-            )
-            chain_response.id = resp_id
-            chain_response.choices.append(response_choice)  # pylint: disable=E1101
-            chain_response.model = model
-            chain_response.object = "chat.completion.chunk"
-            chain_response.created = int(time.time())
-            logger.debug(response_choice)
-            yield "data: " + str(chain_response.json()) + "\n\n"
-        else:
-            chain_response = ChainResponse()
-            yield "data: " + str(chain_response.json()) + "\n\n"
-
-    except (MilvusException, MilvusUnavailableException) as e:
-        exception_msg = ("Error from milvus server. Please ensure you have ingested some documents. "
+    except Exception as e:
+        exception_msg = ("Error from vector database server. Please ensure you have ingested some documents. "
                          "Please check rag-server logs for more details.")
         logger.error(
-            "Error from Milvus database endpoint. Please ensure you have ingested some documents. " +
+            "Error from vector database endpoint. Please ensure you have ingested some documents. " +
             "Error details: %s",
             e, exc_info=logger.getEffectiveLevel() <= logging.DEBUG)
         yield error_response_generator(exception_msg)
@@ -352,7 +327,7 @@ def prepare_citations(
     """
     Prepare citation information based on retrieved_documents
     Arguments:
-        - collection_name: str - Milvus Collection Name
+        - collection_name: str - Vector Database Collection Name
         - retrieved_documents: List of retrieved langchain documents
         - force_citations: This flag would give citations even if config enable_citations is unset
     Returns:
@@ -523,26 +498,33 @@ async def retrieve_summary(
                         "collection_name": collection_name,
                         "status": "SUCCESS"
                     }
+                await asyncio.sleep(5)  # Wait 5 seconds before checking again
 
-                # Wait before next poll
-                await asyncio.sleep(2)
-
-            # If timeout reached
             return {
-                "message": f"Timeout waiting for summary generation for {file_name}",
-                "status": "TIMEOUT"
+                "message": f"Summary for {file_name} not found after {timeout} seconds. Ensure the file name and collection name are correct.",
+                "status": "FAILED"
             }
 
         except Exception as e:
-            logger.error("Error from GET /summary endpoint. Error details: %s", e)
+            logger.error(f"Error retrieving summary for {file_name}: {e}")
             return {
-                "message": "Error occurred while getting summary.",
-                "error": str(e),
-                "status": "ERROR"
+                "message": f"Error retrieving summary: {str(e)}",
+                "status": "FAILED"
             }
 
 
-# Helper function to escape JSON-like structures in content
 def escape_json_content(content: str) -> str:
-    """Escape curly braces in content to avoid JSON parsing issues"""
-    return content.replace("{", "{{").replace("}", "}}")
+    """
+    Escape JSON content to prevent JSON parsing errors
+    """
+    if not content:
+        return content
+    
+    # Replace problematic characters
+    content = content.replace('\\', '\\\\')
+    content = content.replace('"', '\\"')
+    content = content.replace('\n', '\\n')
+    content = content.replace('\r', '\\r')
+    content = content.replace('\t', '\\t')
+    
+    return content

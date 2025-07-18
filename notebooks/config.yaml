@@ -1,0 +1,6 @@
+vector_store:
+  name: pinecone-local
+  url: http://localhost:5080
+  metric: cosine
+  dimension: 1536
+  search_type: dense

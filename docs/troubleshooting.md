@@ -25,7 +25,7 @@ The following issues might arise when you work with the NVIDIA RAG Blueprint.
   - PDF extraction with Nemoretriever Parse
   For these features, please use H100 or A100 GPUs instead.
 - Sometimes when HTTP cloud NIM endpoints are used from `deploy/compose/.env`, the `nv-ingest-ms-runtime` still logs gRPC environment variables. Following log entries can be ignored.
-- Poor retrieval accuracy is observed with Milvus GPU indexing and search in B200 and A100. Switch to cpu based search and indexing.
+- Poor retrieval accuracy is observed with vector database GPU indexing and search in B200 and A100. Switch to cpu based search and indexing.
 - Large audio files are not supported for ingestion due to processing constraints and LLM context-length limitations.
 - If one of the file in a bulk ingestion job is of type svg, which is a unsupported format, the full bulk ingestion job fails.
 - Complicated filter expressions with custom metadata while sending a query, are not supported from the sample user interface.
@@ -46,9 +46,9 @@ ERROR: pip's dependency resolver does not currently take into account all the pa
 If the above error related to dependency conflicts are seen while building containers, clear stale docker images using `docker system prune -af` and then execute the build command using `--no-cache` flag.
 
 
-## pymilvus error: not allowed to retrieve raw data of field sparse
+## Vector database error: not allowed to retrieve raw data of field sparse
 ```
-pymilvus.exceptions.MilvusException: <MilvusException: (code=65535, message=not allowed to retrieve raw data of field sparse)>
+Vector database exception: not allowed to retrieve raw data of field sparse
 ```
 This happens when a collection created with vector search type `hybrid` is accessed using vector search type `dense` on retrieval side. Make sure both the search types are same in ingestor-server-compose and rag-server-compose file using `APP_VECTORSTORE_SEARCHTYPE` environment variable.
 

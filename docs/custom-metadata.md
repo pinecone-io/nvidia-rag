@@ -182,8 +182,8 @@ by using the `filter_expr` parameter in both the `/v1/search` and `/v1/generate`
 
 ### Filter Expression Syntax
 
-Use filter expressions that follow the Milvus boolean expression syntax. 
-For more information, refer to [Filtering Explained](https://milvus.io/docs/boolean.md).
+Use filter expressions that follow the Pinecone boolean expression syntax. 
+For more information, refer to [Pinecone Filtering Documentation](https://docs.pinecone.io/docs/metadata-filtering).
 
 Use the following information to write filter expressions:
 
@@ -324,7 +324,7 @@ The following are some issues that might arise when you work with custom metadat
   - Verify that the metadate field names are correct.
   - Verify that all values are correctly enclosed in quotes.
   - Verify all metadata values are strings in filter expressions.
-  - Verify the operator syntax. For valid expression syntax, refer to [Milvus Filtering Documentation](https://milvus.io/docs/boolean.md).
+  - Verify the operator syntax. For valid expression syntax, refer to [Pinecone Filtering Documentation](https://docs.pinecone.io/docs/metadata-filtering).
 
 - Timestamp Filtering Issues
   - Verify that the metadata uses the ISO 8601 format.

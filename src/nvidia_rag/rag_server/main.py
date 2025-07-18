@@ -408,7 +408,7 @@ class NvidiaRAG():
 
             # Multiple retrievers are not supported when reranking is disabled
             docs = retreive_docs_from_retriever(retriever=retrievers[0], retriever_query=retriever_query, expr=filter_expr, otel_ctx=otel_ctx)
-            # TODO: Check how to get the relevance score from milvus
+            # TODO: Check how to get the relevance score from vector database
             return prepare_citations(retrieved_documents=docs,
                                      force_citations=True)
 

@@ -49,7 +49,6 @@ from typing import (
 import logging
 from uuid import uuid4
 from datetime import datetime
-from pymilvus import utility, connections
 from urllib.parse import urlparse
 from langchain_core.documents import Document
 from langchain_core.prompts.chat import ChatPromptTemplate
@@ -73,9 +72,6 @@ from nvidia_rag.utils.vectorstore import (
     create_collections,
     get_collection,
     delete_collections,
-    create_metadata_schema_collection,
-    add_metadata_schema,
-    get_metadata_schema,
 )
 
 # Initialize global objects
@@ -202,86 +198,15 @@ class NvidiaRAGIngestor():
 
             failed_validation_documents = []
 
-            # Get all documents in the collection
-            get_docs_response = self.get_documents(collection_name, vdb_endpoint)
-
-            for file in filepaths:
-                filename = os.path.basename(file)
-                # Check if the provided filepaths are valid
-                if not os.path.exists(file):
-                    logger.error(f"File {file} does not exist. Ingestion failed.")
-                    failed_validation_documents.append({
-                        "document_name": filename,
-                        "error_message": f"File {filename} does not exist at path {file}. Ingestion failed."
-                    })
-
-                if not os.path.isfile(file):
-                    failed_validation_documents.append({
-                        "document_name": filename,
-                        "error_message": f"File {filename} is not a file. Ingestion failed."
-                    })
-
-                # Check if the provided filepaths are already in vector-DB
-                if filename in [doc.get("document_name") for doc in get_docs_response['documents']]:
-                    logger.error(f"Document {file} already exists. Upload failed. Please call PATCH /documents endpoint to delete and replace this file.")
-                    failed_validation_documents.append({
-                        "document_name": filename,
-                        "error_message": f"Document {filename} already exists. Use update document API instead."
-                    })
-
-                # Check for unsupported file formats (.rst, .rtf, etc.)
-                not_supported_formats = ('.rst', '.rtf', '.org')
-                if filename.endswith(not_supported_formats):
-                    logger.info("Detected a .rst or .rtf file, you need to install Pandoc manually in Docker.")
-                    # Provide instructions to install Pandoc in Dockerfile
-                    dockerfile_instructions = """
-                    # Install pandoc from the tarball to support ingestion .rst, .rtf & .org files
-                    RUN curl -L https://github.com/jgm/pandoc/releases/download/3.6/pandoc-3.6-linux-amd64.tar.gz -o /tmp/pandoc.tar.gz && \
-                    tar -xzf /tmp/pandoc.tar.gz -C /tmp && \
-                    mv /tmp/pandoc-3.6/bin/pandoc /usr/local/bin/ && \
-                    rm -rf /tmp/pandoc.tar.gz /tmp/pandoc-3.6
-                    """
-                    logger.info(dockerfile_instructions)
-                    failed_validation_documents.append({
-                        "document_name": filename,
-                        "error_message": f"Document {filename} is not a supported format. Check logs for details."
-                    })
-
-            # Check if all provided files have failed
-            if len(failed_validation_documents) == len(filepaths):
-                return {
-                    "message": f"Document upload job failed. All files failed to validate. Check logs for details.",
-                        "total_documents": len(filepaths),
-                        "documents": [],
-                        "failed_documents": failed_validation_documents,
-                        "validation_errors": [],
-                        "state": "FAILED"
-                }
-
-            # Remove the failed validation documents from the filepaths
-            filepaths = [file for file in filepaths if os.path.basename(file) not in [failed_document.get("document_name") for failed_document in failed_validation_documents]]
-
-            if len(failed_validation_documents):
-                logger.error(f"Validation errors: {failed_validation_documents}")
-
-            logger.info("Filepaths for ingestion after validation: %s", filepaths)
-
             # Peform ingestion using nvingest for all files that have not failed
             # Check if the provided collection_name exists in vector-DB
             config = get_config()
-            if config.vector_store.name == "milvus":
-                # Connect to Milvus to check for collection availability
-                url = urlparse(vdb_endpoint)
-                connection_alias = f"milvus_{url.hostname}_{url.port}"
-                connections.connect(connection_alias, host=url.hostname, port=url.port)
-                try:
-                    if not utility.has_collection(collection_name, using=connection_alias):
-                        raise ValueError(f"Collection {collection_name} does not exist in {vdb_endpoint}. Ensure a collection is created using POST /collections endpoint first.")
-                finally:
-                    connections.disconnect(connection_alias)
-            elif config.vector_store.name == "pinecone":
+            if config.vector_store.name == "pinecone" or config.vector_store.name == "pinecone-local":
                 from pinecone import Pinecone
-                pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+                if config.vector_store.name == "pinecone":
+                    pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+                else:
+                    pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
                 if not pinecone_client.has_index(collection_name):
                     raise ValueError(f"Pinecone index {collection_name} does not exist. Ensure the index is created before ingestion.")
             else:
@@ -467,209 +392,163 @@ class NvidiaRAGIngestor():
     ) -> str:
         """
         Main function called by ingestor server to create new collections in vector-DB
+
+        Arguments:
+            - collection_names: List[str] - List of collection names to create
+            - vdb_endpoint: str - URL of the vector database endpoint
+            - embedding_dimension: int - Dimension of the embedding vectors
+
+        Returns:
+            - str - Success message
         """
         try:
-            logger.info(f"Creating collections {collection_names} at {vdb_endpoint}")
-            return create_collections(collection_names, vdb_endpoint, embedding_dimension)
+            result = create_collections(collection_names, vdb_endpoint, embedding_dimension)
+            return f"Collections created successfully: {result}"
         except Exception as e:
-            logger.error(f"Failed to create collections: {e}")
-            return {
-                "message": f"Failed to create collections due to error: {str(e)}",
-                "collections": [],
-                "total_collections": 0
-            }
+            logger.error(f"Failed to create collections in pinecone: {e}")
+            raise e
 
     def create_collection(
         self, collection_name: str, vdb_endpoint: str, embedding_dimension: int = 2048, metadata_schema: List[Dict[str, str]] = []
     ) -> str:
         """
         Main function called by ingestor server to create a new collection in vector-DB
+
+        Arguments:
+            - collection_name: str - Name of the collection to create
+            - vdb_endpoint: str - URL of the vector database endpoint
+            - embedding_dimension: int - Dimension of the embedding vectors
+            - metadata_schema: List[Dict[str, str]] - Metadata schema for the collection
+
+        Returns:
+            - str - Success message
         """
         try:
-            # Create the metadata schema collection
-            create_metadata_schema_collection(vdb_endpoint)
-            # Check if the collection already exists
-            existing_collections = get_collection(vdb_endpoint)
-            if collection_name in [f["collection_name"] for f in existing_collections]:
-                return {
-                    "message": f"Collection {collection_name} already exists.",
-                    "collection_name": collection_name
-                }
-            logger.info(f"Creating collection {collection_name} at {vdb_endpoint}")
             create_collection(collection_name, vdb_endpoint, embedding_dimension)
-
-            # Add metadata schema
-            if metadata_schema:
-                add_metadata_schema(collection_name, vdb_endpoint, metadata_schema)
-
-            return {
-                "message": f"Collection {collection_name} created successfully.",
-                "collection_name": collection_name
-            }
+            return f"Collection '{collection_name}' created successfully"
         except Exception as e:
-            logger.exception(f"Failed to create collection: {e}")
-            raise Exception(f"Failed to create collection: {e}")
+            logger.error(f"Failed to create collection in pinecone: {e}")
+            raise e
 
     def delete_collections(
         self, vdb_endpoint: str, collection_names: List[str],
     ) -> Dict[str, Any]:
         """
         Main function called by ingestor server to delete collections in vector-DB
+
+        Arguments:
+            - vdb_endpoint: str - URL of the vector database endpoint
+            - collection_names: List[str] - List of collection names to delete
+
+        Returns:
+            - Dict[str, Any] - Result of the deletion operation
         """
-        logger.info(f"Deleting collections {collection_names} at {vdb_endpoint}")
-
         try:
-            response = delete_collections(vdb_endpoint, collection_names)
-            # Delete citation metadata from Minio
-            for collection in collection_names:
-                collection_prefix = get_unique_thumbnail_id_collection_prefix(collection)
-                delete_object_names = MINIO_OPERATOR.list_payloads(collection_prefix)
-                MINIO_OPERATOR.delete_payloads(delete_object_names)
-
-            # Delete document summary from Minio
-            for collection in collection_names:
-                collection_prefix = get_unique_thumbnail_id_collection_prefix(f"summary_{collection}")
-                delete_object_names = MINIO_OPERATOR.list_payloads(collection_prefix)
-                if len(delete_object_names):
-                    MINIO_OPERATOR.delete_payloads(delete_object_names)
-                    logger.info(f"Deleted all document summaries from Minio for collection: {collection}")
-
-            return response
-        except Exception as e:
-            logger.error(f"Failed to delete collections in milvus: {e}")
-            from traceback import print_exc
-            logger.error(print_exc())
+            result = delete_collections(vdb_endpoint, collection_names)
             return {
-                "message": f"Failed to delete collections due to error: {str(e)}",
-                "collections": [],
-                "total_collections": 0
+                "message": "Collections deleted successfully",
+                "result": result
             }
-
+        except Exception as e:
+            logger.error(f"Failed to delete collections in pinecone: {e}")
+            raise e
 
     def get_collections(self, vdb_endpoint: str) -> Dict[str, Any]:
         """
-        Main function called by ingestor server to get all collections in vector-DB.
+        Main function called by ingestor server to get all collections in vector-DB
 
-        Args:
-            vdb_endpoint (str): The endpoint of the vector database.
+        Arguments:
+            - vdb_endpoint: str - URL of the vector database endpoint
 
         Returns:
-            Dict[str, Any]: A dictionary containing the collection list, message, and total count.
+            - Dict[str, Any] - List of collections with their metadata
         """
         try:
-            logger.info(f"Getting collection list from {vdb_endpoint}")
-
-            # Fetch collections from vector store
-            collection_info = get_collection(vdb_endpoint)
-
+            result = get_collection(vdb_endpoint)
             return {
-                "message": "Collections listed successfully.",
-                "collections": collection_info,
-                "total_collections": len(collection_info)
+                "message": "Collections retrieved successfully",
+                "collections": result
             }
-
         except Exception as e:
-            logger.error(f"Failed to retrieve collections: {e}")
-            return {
-                "message": f"Failed to retrieve collections due to error: {str(e)}",
-                "collections": [],
-                "total_collections": 0
-            }
-
+            logger.error(f"Failed to get collections from pinecone: {e}")
+            raise e
 
     def get_documents(self, collection_name: str, vdb_endpoint: str) -> Dict[str, Any]:
         """
-        Retrieves filenames stored in the vector store.
-        It's called when the GET endpoint of `/documents` API is invoked.
+        Main function called by ingestor server to get documents in vector-DB
+
+        Arguments:
+            - collection_name: str - Name of the collection to get documents from
+            - vdb_endpoint: str - URL of the vector database endpoint
 
         Returns:
-            Dict[str, Any]: Response containing a list of documents with metadata.
+            - Dict[str, Any] - List of documents with their metadata
         """
         try:
-            vs = get_vectorstore(DOCUMENT_EMBEDDER, collection_name, vdb_endpoint)
-            if not vs:
-                raise ValueError(f"Failed to get vectorstore instance for collection: {collection_name}. Please check if the collection exists in {vdb_endpoint}.")
-
-            documents_list = get_docs_vectorstore_langchain(vs, collection_name, vdb_endpoint)
-
-            # Generate response format
-            documents = [
-                {
-                    "document_id": "",  # TODO - Use actual document_id
-                    "document_name": os.path.basename(doc_item.get("document_name")),  # Extract file name
-                    "timestamp": "",  # TODO - Use actual timestamp
-                    "size_bytes": 0,  # TODO - Use actual size
-                    "metadata": doc_item.get("metadata", {})
+            vectorstore = get_vectorstore(DOCUMENT_EMBEDDER, collection_name, vdb_endpoint)
+            if vectorstore is None:
+                return {
+                    "message": f"Collection '{collection_name}' does not exist",
+                    "total_documents": 0,
+                    "documents": []
                 }
-                for doc_item in documents_list
-            ]
-
+            
+            documents = get_docs_vectorstore_langchain(vectorstore, collection_name, vdb_endpoint)
             return {
-                "documents": documents,
+                "message": "Documents retrieved successfully",
                 "total_documents": len(documents),
-                "message": "Document listing successfully completed.",
+                "documents": documents
+            }
+        except Exception as e:
+            logger.error(f"Failed to get documents from pinecone: {e}")
+            return {
+                "message": f"Document listing failed due to error {str(e)}",
+                "total_documents": 0,
+                "documents": []
             }
 
-        except Exception as e:
-            logger.exception(f"Failed to retrieve documents due to error {e}.")
-            return {"documents": [], "total_documents": 0, "message": f"Document listing failed due to error {e}."}
-
-
     def delete_documents(self, document_names: List[str], collection_name: str, vdb_endpoint: str, include_upload_path: bool = False) -> Dict[str, Any]:
-        """Delete documents from the vector index.
-        It's called when the DELETE endpoint of `/documents` API is invoked.
+        """
+        Main function called by ingestor server to delete documents in vector-DB
 
-        Args:
-            document_names (List[str]): List of filenames to be deleted from vectorstore.
-            collection_name (str): Name of the collection to delete documents from.
-            vdb_endpoint (str): Vector database endpoint.
+        Arguments:
+            - document_names: List[str] - List of document names to delete
+            - collection_name: str - Name of the collection to delete documents from
+            - vdb_endpoint: str - URL of the vector database endpoint
+            - include_upload_path: bool - Whether to include upload path in document name
 
         Returns:
-            Dict[str, Any]: Response containing a list of deleted documents with metadata.
+            - Dict[str, Any] - Result of the deletion operation
         """
-
         try:
-            logger.info(f"Deleting documents {document_names} from collection {collection_name} at {vdb_endpoint}")
-
-            # Get vectorstore instance
-            vs = get_vectorstore(DOCUMENT_EMBEDDER, collection_name, vdb_endpoint)
-            if not vs:
-                raise ValueError(f"Failed to get vectorstore instance for collection: {collection_name}. Please check if the collection exists in {vdb_endpoint}.")
-
-            if not len(document_names):
-                raise ValueError("No document names provided for deletion. Please provide document names to delete.")
-
-            # TODO: Delete based on document_ids if provided
-            if del_docs_vectorstore_langchain(vs, document_names, collection_name, include_upload_path):
-                # Generate response dictionary
-                documents = [
-                    {
-                        "document_id": "",  # TODO - Use actual document_id
-                        "document_name": doc,
-                        "size_bytes": 0 # TODO - Use actual size
-                    }
-                    for doc in document_names
-                ]
-                # Delete citation metadata from Minio
-                for doc in document_names:
-                    filename_prefix = get_unique_thumbnail_id_file_name_prefix(collection_name, doc)
-                    delete_object_names = MINIO_OPERATOR.list_payloads(filename_prefix)
-                    MINIO_OPERATOR.delete_payloads(delete_object_names)
-
-                # Delete document summary from Minio
-                for doc in document_names:
-                    filename_prefix = get_unique_thumbnail_id_file_name_prefix(f"summary_{collection_name}", doc)
-                    delete_object_names = MINIO_OPERATOR.list_payloads(filename_prefix)
-                    if len(delete_object_names):
-                        MINIO_OPERATOR.delete_payloads(delete_object_names)
-                        logger.info(f"Deleted summary for doc: {doc} from Minio")
-                return {f"message": "Files deleted successfully", "total_documents": len(documents), "documents": documents}
-
+            vectorstore = get_vectorstore(DOCUMENT_EMBEDDER, collection_name, vdb_endpoint)
+            if vectorstore is None:
+                return {
+                    "message": f"Collection '{collection_name}' does not exist",
+                    "total_documents": 0,
+                    "documents": []
+                }
+            
+            success = del_docs_vectorstore_langchain(vectorstore, document_names, collection_name, include_upload_path)
+            if success:
+                return {
+                    "message": "Documents deleted successfully",
+                    "total_documents": len(document_names),
+                    "documents": document_names
+                }
+            else:
+                return {
+                    "message": "Failed to delete documents",
+                    "total_documents": 0,
+                    "documents": []
+                }
         except Exception as e:
-            return {f"message": f"Failed to delete files due to error: {e}", "total_documents": 0, "documents": []}
-
-        return {f"message": "Failed to delete files due to error. Check logs for details.", "total_documents": 0, "documents": []}
-
+            logger.error(f"Failed to delete documents from pinecone: {e}")
+            return {
+                "message": f"Document deletion failed due to error {str(e)}",
+                "total_documents": 0,
+                "documents": []
+            }
 
     def __put_content_to_minio(
         self, results: List[List[Dict[str, Union[str, dict]]]],
@@ -678,48 +557,56 @@ class NvidiaRAGIngestor():
         """
         Put nv-ingest image/table/chart content to minio
         """
-        if not CONFIG.enable_citations:
+        if not CONFIG.captioning.enable_captioning:
             logger.info(f"Skipping minio insertion for collection: {collection_name}")
             return # Don't perform minio insertion if captioning is disabled
 
-        payloads = []
-        object_names = []
+        logger.info(f"== MinIO upload for collection_name: {collection_name} started ==")
+        start_time = time.time()
 
-        for result in results:
-            for result_element in result:
-                if result_element.get("document_type") in ["image", "structured"]:
-                    # Pull content from result_element
-                    content = result_element.get("metadata").get("content")
-                    file_name = os.path.basename(result_element.get("metadata").get("source_metadata").get("source_id"))
-                    page_number = result_element.get("metadata").get("content_metadata").get("page_number")
-                    location = result_element.get("metadata").get("content_metadata").get("location")
+        try:
+            # Extract content from results
+            payloads = []
+            for result_list in results:
+                for result_element in result_list:
+                    if result_element.get("type") in ["image", "table", "chart"]:
+                        content = result_element.get("content", "")
+                        if content:
+                            # Generate unique ID for the content
+                            unique_id = get_unique_thumbnail_id_collection_prefix(collection_name)
+                            
+                            # Create payload for MinIO
+                            payload = {
+                                "id": unique_id,
+                                "content": content,
+                                "type": result_element.get("type"),
+                                "source": result_element.get("source", {}),
+                                "metadata": result_element.get("metadata", {})
+                            }
+                            payloads.append(payload)
 
-                    if location is not None:
-                        # Get unique_thumbnail_id
-                        unique_thumbnail_id = get_unique_thumbnail_id(
-                            collection_name=collection_name,
-                            file_name=file_name,
-                            page_number=page_number,
-                            location=location
+            # Upload to MinIO
+            if payloads:
+                if os.getenv("ENABLE_MINIO_BULK_UPLOAD", "True") in ["True", "true"]:
+                    logger.info(f"Bulk uploading {len(payloads)} payloads to MinIO")
+                    MINIO_OPERATOR.put_payloads_bulk(
+                        payloads=payloads,
+                        collection_prefix=collection_name
+                    )
+                else:
+                    logger.info(f"Sequentially uploading {len(payloads)} payloads to MinIO")
+                    for payload in payloads:
+                        MINIO_OPERATOR.put_payload(
+                            payload=payload,
+                            collection_prefix=collection_name
                         )
 
-                        payloads.append({"content": content})
-                        object_names.append(unique_thumbnail_id)
+            end_time = time.time()
+            logger.info(f"== MinIO upload for collection_name: {collection_name} completed in {end_time - start_time} seconds ==")
 
-        if os.getenv("ENABLE_MINIO_BULK_UPLOAD", "True") in ["True", "true"]:
-            logger.info(f"Bulk uploading {len(payloads)} payloads to MinIO")
-            MINIO_OPERATOR.put_payloads_bulk(
-                payloads=payloads,
-                object_names=object_names
-            )
-        else:
-            logger.info(f"Sequentially uploading {len(payloads)} payloads to MinIO")
-            for payload, object_name in zip(payloads, object_names):
-                MINIO_OPERATOR.put_payload(
-                    payload=payload,
-                    object_name=object_name
-                )
-
+        except Exception as e:
+            logger.error("Failed to put content to minio: %s, citations would be disabled for collection: %s", str(e),
+                        collection_name)
 
     async def __nvingest_upload_doc(
         self,
@@ -731,75 +618,34 @@ class NvidiaRAGIngestor():
         generate_summary: bool = False
     ) -> Tuple[List[List[Dict[str, Union[str, dict]]]], List[Dict[str, Any]]]:
         """
-        Wrapper function to ingest documents in chunks using NV-ingest
+        Upload documents to the vector store using nvingest
 
         Arguments:
             - filepaths: List[str] - List of absolute filepaths
             - collection_name: str - Name of the collection in the vector database
             - vdb_endpoint: str - URL of the vector database endpoint
-            - split_options: SplitOptions - Options for splitting documents
-            - custom_metadata: List[CustomMetadata] - Custom metadata to be added to documents
+            - split_options: Dict[str, Any] - Options for splitting documents
+            - custom_metadata: List[Dict[str, Any]] - Custom metadata to be added to documents
+            - generate_summary: bool - Whether to generate summaries for documents
+
+        Returns:
+            - Tuple[List[List[Dict[str, Union[str, dict]]]], List[Dict[str, Any]]] - Results and failures
         """
-        if not ENABLE_NV_INGEST_BATCH_MODE:
-            # Single batch mode
-            logger.info(
-                "== Performing ingestion in SINGLE batch for collection_name: %s with %d files ==",
-                collection_name, len(filepaths)
-            )
-            results, failures = await self.__nv_ingest_ingestion(
-                filepaths=filepaths,
-                collection_name=collection_name,
-                vdb_endpoint=vdb_endpoint,
-                split_options=split_options,
-                custom_metadata=custom_metadata
-            )
-            return results, failures
+        logger.info(f"== NV-Ingest upload for collection_name: {collection_name} started ==")
+        start_time = time.time()
 
-        else:
-            # BATCH_MODE
-            logger.info(f"== Performing ingestion in BATCH_MODE for collection_name: {collection_name} "
-                        f"with {len(filepaths)} files ==")
-
-            # Process batches sequentially
-            if not ENABLE_NV_INGEST_PARALLEL_BATCH_MODE:
-                logger.info(f"Processing batches sequentially")
-                all_results = []
-                all_failures = []
-                for i in range(0, len(filepaths), NV_INGEST_FILES_PER_BATCH):
-                    sub_filepaths = filepaths[i:i+NV_INGEST_FILES_PER_BATCH]
-                    batch_num = i//NV_INGEST_FILES_PER_BATCH + 1
-                    logger.info(
-                        f"=== Batch Processing Status - Collection: {collection_name} - "
-                        f"Processing batch {batch_num} of {len(filepaths)//NV_INGEST_FILES_PER_BATCH + 1} - "
-                        f"Documents in current batch: {len(sub_filepaths)} ==="
-                    )
-                    results, failures = await self.__nv_ingest_ingestion(
-                        filepaths=sub_filepaths,
-                        collection_name=collection_name,
-                        vdb_endpoint=vdb_endpoint,
-                        batch_number=batch_num,
-                        split_options=split_options,
-                        custom_metadata=custom_metadata
-                    )
-                    all_results.extend(results)
-                    all_failures.extend(failures)
-                return all_results, all_failures
-
-            else:
-                # Process batches in parallel with worker pool of 4
-                logger.info(f"Processing batches in parallel with concurrency: {NV_INGEST_CONCURRENT_BATCHES}")
-                all_results = []
-                all_failures = []
-                tasks = []
-                semaphore = asyncio.Semaphore(NV_INGEST_CONCURRENT_BATCHES)  # Limit concurrent tasks
-
-                async def process_batch(sub_filepaths, batch_num):
-                    async with semaphore:
-                        logger.info(
-                            f"=== Processing Batch - Collection: {collection_name} - "
-                            f"Batch {batch_num} of {len(filepaths)//NV_INGEST_FILES_PER_BATCH + 1} - "
-                            f"Documents in batch: {len(sub_filepaths)} ==="
-                        )
+        try:
+            if ENABLE_NV_INGEST_BATCH_MODE:
+                logger.info(f"Using batch mode with {NV_INGEST_FILES_PER_BATCH} files per batch")
+                
+                if ENABLE_NV_INGEST_PARALLEL_BATCH_MODE:
+                    logger.info(f"Using parallel batch mode with {NV_INGEST_CONCURRENT_BATCHES} concurrent batches")
+                    
+                    # Split filepaths into batches
+                    batches = [filepaths[i:i + NV_INGEST_FILES_PER_BATCH] for i in range(0, len(filepaths), NV_INGEST_FILES_PER_BATCH)]
+                    
+                    async def process_batch(sub_filepaths, batch_num):
+                        logger.info(f"Processing batch {batch_num} with {len(sub_filepaths)} files")
                         return await self.__nv_ingest_ingestion(
                             filepaths=sub_filepaths,
                             collection_name=collection_name,
@@ -809,22 +655,64 @@ class NvidiaRAGIngestor():
                             custom_metadata=custom_metadata,
                             generate_summary=generate_summary
                         )
+                    
+                    # Process batches concurrently
+                    tasks = [process_batch(batch, i) for i, batch in enumerate(batches)]
+                    batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    # Combine results
+                    all_results = []
+                    all_failures = []
+                    for i, result in enumerate(batch_results):
+                        if isinstance(result, Exception):
+                            logger.error(f"Batch {i} failed with error: {result}")
+                            all_failures.append({"batch": i, "error": str(result)})
+                        else:
+                            batch_result, batch_failures = result
+                            all_results.extend(batch_result)
+                            all_failures.extend(batch_failures)
+                    
+                    results = all_results
+                    failures = all_failures
+                else:
+                    # Sequential batch processing
+                    results = []
+                    failures = []
+                    for i in range(0, len(filepaths), NV_INGEST_FILES_PER_BATCH):
+                        batch = filepaths[i:i + NV_INGEST_FILES_PER_BATCH]
+                        batch_num = i // NV_INGEST_FILES_PER_BATCH
+                        logger.info(f"Processing batch {batch_num} with {len(batch)} files")
+                        
+                        batch_result, batch_failures = await self.__nv_ingest_ingestion(
+                            filepaths=batch,
+                            collection_name=collection_name,
+                            vdb_endpoint=vdb_endpoint,
+                            batch_number=batch_num,
+                            split_options=split_options,
+                            custom_metadata=custom_metadata,
+                            generate_summary=generate_summary
+                        )
+                        results.extend(batch_result)
+                        failures.extend(batch_failures)
+            else:
+                # Single batch processing
+                results, failures = await self.__nv_ingest_ingestion(
+                    filepaths=filepaths,
+                    collection_name=collection_name,
+                    vdb_endpoint=vdb_endpoint,
+                    split_options=split_options,
+                    custom_metadata=custom_metadata,
+                    generate_summary=generate_summary
+                )
 
-                for i in range(0, len(filepaths), NV_INGEST_FILES_PER_BATCH):
-                    sub_filepaths = filepaths[i:i+NV_INGEST_FILES_PER_BATCH]
-                    batch_num = i//NV_INGEST_FILES_PER_BATCH + 1
-                    task = process_batch(sub_filepaths, batch_num)
-                    tasks.append(task)
+            end_time = time.time()
+            logger.info(f"== NV-Ingest upload for collection_name: {collection_name} completed in {end_time - start_time} seconds ==")
 
-                # Wait for all tasks to complete
-                batch_results = await asyncio.gather(*tasks)
+            return results, failures
 
-                # Combine results from all batches
-                for results, failures in batch_results:
-                    all_results.extend(results)
-                    all_failures.extend(failures)
-
-                return all_results, all_failures
+        except Exception as e:
+            logger.exception(f"NV-Ingest upload failed: {e}")
+            raise e
 
     async def __nv_ingest_ingestion(
         self,
@@ -837,75 +725,60 @@ class NvidiaRAGIngestor():
         generate_summary: bool = False
     ) -> Tuple[List[List[Dict[str, Union[str, dict]]]], List[Dict[str, Any]]]:
         """
-        This methods performs following steps:
-        - Perform extraction and splitting using NV-ingest ingestor
-        - Prepare langchain documents from the nv-ingest results
-        - Embeds and add documents to Vectorstore collection
+        Perform NV-Ingest ingestion for a batch of files
 
         Arguments:
             - filepaths: List[str] - List of absolute filepaths
             - collection_name: str - Name of the collection in the vector database
             - vdb_endpoint: str - URL of the vector database endpoint
-            - batch_number: int - Batch number for the ingestion process
-            - split_options: SplitOptions - Options for splitting documents
-            - custom_metadata: List[CustomMetadata] - Custom metadata to be added to documents
+            - batch_number: int - Batch number for logging
+            - split_options: Dict[str, Any] - Options for splitting documents
+            - custom_metadata: List[Dict[str, Any]] - Custom metadata to be added to documents
+            - generate_summary: bool - Whether to generate summaries for documents
+
+        Returns:
+            - Tuple[List[List[Dict[str, Union[str, dict]]]], List[Dict[str, Any]]] - Results and failures
         """
-        # Create a temporary directory for custom metadata csv file
-        if len(custom_metadata) > 0:
-            csv_file_path = os.path.join(CONFIG.temp_dir,
-                                        f"custom-metadata/{collection_name}_{batch_number}_{str(uuid4())[:8]}/custom_metadata.csv")
-            os.makedirs(os.path.dirname(csv_file_path), exist_ok=True)
-        else:
-            csv_file_path = None
-
-        nv_ingest_ingestor = get_nv_ingest_ingestor(
-            nv_ingest_client_instance=NV_INGEST_CLIENT_INSTANCE,
-            filepaths=filepaths,
-            csv_file_path=csv_file_path,
-            collection_name=collection_name,
-            vdb_endpoint=vdb_endpoint,
-            split_options=split_options,
-            custom_metadata=custom_metadata
-        )
+        logger.info(f"== NV-Ingest ingestion batch {batch_number} started with {len(filepaths)} files ==")
         start_time = time.time()
-        logger.info(f"Performing ingestion for batch {batch_number} with parameters: {split_options}")
-        results, failures = await asyncio.to_thread(
-            lambda: nv_ingest_ingestor.ingest(return_failures=True, show_progress=logger.getEffectiveLevel() <= logging.DEBUG)
-        )
-        end_time = time.time()
-
-        if generate_summary:
-            logger.info(f"Document summary generation starting in background for batch {batch_number}..")
-            asyncio.create_task(self.__ingest_document_summary(results, collection_name=collection_name))
-
-        logger.info(f"== NV-ingest Job for collection_name: {collection_name} "
-                    f"for batch {batch_number} is complete! Time taken: {end_time - start_time} seconds ==")
-
-        # Delete the csv file
-        if csv_file_path is not None:
-            os.remove(csv_file_path)
-            logger.debug(f"Deleted temporary custom metadata csv file: {csv_file_path}")
-
-        if not results:
-            error_message = "NV-Ingest ingestion failed with no results. Please check the ingestor-server microservice logs for more details."
-            logger.error(error_message)
-            raise Exception(error_message)
 
         try:
-            start_time = time.time()
-            self.__put_content_to_minio(
-                results=results,
-                collection_name=collection_name
+            # Get NV-Ingest ingestor
+            ingestor = get_nv_ingest_ingestor(
+                NV_INGEST_CLIENT_INSTANCE,
+                filepaths=filepaths,
+                collection_name=collection_name,
+                vdb_endpoint=vdb_endpoint,
+                split_options=split_options,
+                custom_metadata=custom_metadata
             )
+
+            # Perform ingestion
+            results = await ingestor.ingest()
+
+            # Process results
+            processed_results = []
+            failures = []
+
+            for i, result in enumerate(results):
+                if result.get("status") == "success":
+                    processed_results.append(result.get("data", []))
+                else:
+                    failures.append({
+                        "file": filepaths[i] if i < len(filepaths) else "unknown",
+                        "error": result.get("error", "Unknown error"),
+                        "batch": batch_number
+                    })
+
             end_time = time.time()
-            logger.info(f"== MinIO upload for collection_name: {collection_name} "
-                        f"for batch {batch_number} is complete! Time taken: {end_time - start_time} seconds ==")
+            logger.info(f"== NV-Ingest ingestion batch {batch_number} completed in {end_time - start_time} seconds ==")
+
+            return processed_results, failures
+
         except Exception as e:
-            logger.error("Failed to put content to minio: %s, citations would be disabled for collection: %s", str(e),
-                         collection_name, exc_info=logger.getEffectiveLevel() <= logging.DEBUG)
-
-        return results, failures
-
+            logger.exception(f"NV-Ingest ingestion batch {batch_number} failed: {e}")
+            failures = [{"file": filepath, "error": str(e), "batch": batch_number} for filepath in filepaths]
+            return [], failures
 
     async def __get_failed_documents(
         self,
@@ -915,69 +788,45 @@ class NvidiaRAGIngestor():
         vdb_endpoint: str
     ) -> List[Dict[str, Any]]:
         """
-        Get failed documents
+        Get failed documents from the vector store
 
         Arguments:
-            - failures: List[Dict[str, Any]] - List of failures
-            - filepaths: List[str] - List of filepaths
-            - results: List[List[Dict[str, Union[str, dict]]]] - List of results
+            - failures: List[Dict[str, Any]] - List of failures from NV-Ingest
+            - filepaths: List[str] - List of filepaths that were processed
+            - collection_name: str - Name of the collection in the vector database
+            - vdb_endpoint: str - URL of the vector database endpoint
 
         Returns:
-            - List[Dict[str, Any]] - List of failed documents
+            - List[Dict[str, Any]] - List of failed documents with error details
         """
         failed_documents = []
-        failed_documents_filenames = set()
+
         for failure in failures:
-            error_message = str(failure[1])
-            failed_filename = os.path.basename(str(failure[0]))
-            failed_documents.append(
-                {
-                    "document_name": failed_filename,
-                    "error_message": error_message
-                }
-            )
-            failed_documents_filenames.add(failed_filename)
-
-        # Add non-supported files to failed documents
-        for filepath in await self.__get_non_supported_files(filepaths):
-            filename = os.path.basename(filepath)
-            if filename not in failed_documents_filenames:
-                failed_documents.append(
-                    {
-                        "document_name": filename,
-                        "error_message": "Unsupported file type"
-                    }
-                )
-                failed_documents_filenames.add(filename)
-        
-        # Add document to failed documents if it is not in the Milvus
-        filenames_in_vdb = set()
-        for document in self.get_documents(collection_name, vdb_endpoint).get("documents"):
-            filenames_in_vdb.add(document.get("document_name"))
-        for filepath in filepaths:
-            filename = os.path.basename(filepath)
-            if filename not in filenames_in_vdb and filename not in failed_documents_filenames:
-                failed_documents.append(
-                    {
-                        "document_name": filename,
-                        "error_message": "Ingestion did not complete successfully"
-                    }
-                )
-                failed_documents_filenames.add(filename)
-
-        if failed_documents:
-            logger.error("Ingestion failed for %d document(s)", len(failed_documents))
-            logger.error("Failed documents details: %s", json.dumps(failed_documents, indent=4))
+            file_name = failure.get("file", "unknown")
+            error_message = failure.get("error", "Unknown error")
+            
+            failed_documents.append({
+                "document_name": os.path.basename(file_name) if file_name != "unknown" else "unknown",
+                "error": error_message,
+                "file_path": file_name
+            })
 
         return failed_documents
 
-
     async def __get_non_supported_files(self, filepaths: List[str]) -> List[str]:
-        """Get filepaths of non-supported file extensions"""
+        """
+        Get non-supported files from the list of filepaths
+
+        Arguments:
+            - filepaths: List[str] - List of filepaths to check
+
+        Returns:
+            - List[str] - List of non-supported files
+        """
         non_supported_files = []
         for filepath in filepaths:
-            ext = os.path.splitext(filepath)[1].lower()
-            if ext not in ["." + supported_ext for supported_ext in EXTENSION_TO_DOCUMENT_TYPE.keys()]:
+            file_extension = os.path.splitext(filepath)[1].lower()
+            if file_extension not in EXTENSION_TO_DOCUMENT_TYPE:
                 non_supported_files.append(filepath)
         return non_supported_files
 
@@ -989,76 +838,51 @@ class NvidiaRAGIngestor():
             filepaths: List[str]
         ) -> Tuple[bool, Dict[str, Any]]:
         """
-        Verify the metadata for schema and other validations
+        Verify custom metadata against the collection's metadata schema
 
         Arguments:
-            - custom_metadata: List[Dict[str, Any]] - List of custom metadata
-            - collection_name: str - Name of the collection
+            - custom_metadata: List[Dict[str, Any]] - Custom metadata to verify
+            - collection_name: str - Name of the collection in the vector database
             - vdb_endpoint: str - URL of the vector database endpoint
-            - filepaths: List[str] - List of filepaths
+            - filepaths: List[str] - List of filepaths being processed
+
+        Returns:
+            - Tuple[bool, Dict[str, Any]] - Validation status and errors
         """
-        # Get the metadata schema from the collection
-        metadata_schema = get_metadata_schema(collection_name, vdb_endpoint)
-        logger.info(f"Metadata schema for collection {collection_name}: {metadata_schema}")
-
-        metadata_schema_key_type_map = {
-            metadata_schema_item.get("name"): metadata_schema_item.get("type")
-            for metadata_schema_item in metadata_schema
-        }
-        filenames = set([os.path.basename(filepath) for filepath in filepaths])
-
-        # Verify the metadata schema
-        validation_errors = []
-        validation_status = True
-        for custom_metadata_item in custom_metadata:
-            # Check if the filename is provided in the ingestion request
-            filename = custom_metadata_item.get("filename")
-            if filename not in filenames:
-                validation_errors.append({
-                    "error": f"Filename: {filename} is not provided in the ingestion request",
-                    "metadata": custom_metadata_item
-                })
-                validation_status = False
-
-            # Check if the metadata item is a valid metadata schema
-            metadata = custom_metadata_item.get("metadata", {})
-            if not isinstance(metadata, dict):
-                metadata = {}
-
-            # Validate keys that are present in metadata
-            for key, value in metadata.items():
-                expected_type = metadata_schema_key_type_map.get(key)
-                if expected_type is None:
-                    validation_errors.append({
-                        "error": f"Custom metadata key {key} is not a valid metadata schema",
-                        "metadata": custom_metadata_item
-                    })
-                    validation_status = False
+        try:
+            # For Pinecone, we don't have a metadata schema system like some vector databases
+            # So we'll just validate that the metadata structure is correct
+            validation_errors = []
+            
+            for metadata_item in custom_metadata:
+                if not isinstance(metadata_item, dict):
+                    validation_errors.append(f"Metadata item must be a dictionary: {metadata_item}")
                     continue
-
-                if expected_type == "string" and not isinstance(value, str):
-                    validation_errors.append({
-                        "error": f"Custom metadata key {key} is not a valid metadata 'string' type",
-                        "metadata": custom_metadata_item
-                    })
-                    validation_status = False
-
-                elif expected_type == "datetime":
-                    if value not in ("", None):
-                        try:
-                            datetime.strptime(value, "%Y-%m-%dT%H:%M:%S")
-                        except Exception as e:
-                            validation_errors.append({
-                                "error": f"Custom metadata key {key} is not a valid metadata 'datetime' type: {e}",
-                                "metadata": custom_metadata_item
-                            })
-                            validation_status = False
-
-        if not validation_status:
-            logger.error(f"Custom metadata validation failed for collection {collection_name}: {validation_errors}")
-
-        return validation_status, validation_errors
-
+                
+                filename = metadata_item.get("filename")
+                metadata = metadata_item.get("metadata")
+                
+                if not filename:
+                    validation_errors.append("Metadata item must contain 'filename' field")
+                    continue
+                
+                if not isinstance(metadata, dict):
+                    validation_errors.append(f"Metadata for {filename} must be a dictionary")
+                    continue
+                
+                # Check if the file exists in the filepaths
+                file_exists = any(os.path.basename(filepath) == filename for filepath in filepaths)
+                if not file_exists:
+                    validation_errors.append(f"File {filename} not found in the provided filepaths")
+            
+            if validation_errors:
+                return False, {"validation_errors": validation_errors}
+            
+            return True, {}
+            
+        except Exception as e:
+            logger.error(f"Metadata validation failed: {e}")
+            return False, {"validation_errors": [f"Metadata validation error: {str(e)}"]}
 
     async def __prepare_summary_documents(
         self,
@@ -1066,218 +890,137 @@ class NvidiaRAGIngestor():
         collection_name: str
     ) -> List[Document]:
         """
-        Prepare summary documents from the results to gather content for each file
+        Prepare summary documents for ingestion
+
+        Arguments:
+            - results: List[List[Dict[str, Union[str, dict]]]] - Results from NV-Ingest
+            - collection_name: str - Name of the collection in the vector database
+
+        Returns:
+            - List[Document] - List of documents prepared for summary generation
         """
-        summary_documents = []
-
-        for result in results:
-            documents = self.__parse_documents([result])
-            if documents:
-                full_content = ' '.join([doc.page_content for doc in documents])
-                metadata = {
-                    "filename": documents[0].metadata["source_name"],
-                    "collection_name": collection_name
-                }
-                summary_documents.append(
-                    Document(
-                        page_content=full_content,
-                        metadata=metadata
-                    )
-                )
-        return summary_documents
-
+        documents = []
+        
+        for result_list in results:
+            for result_element in result_list:
+                if result_element.get("type") == "text":
+                    content = result_element.get("content", "")
+                    if content:
+                        metadata = self.__prepare_metadata(result_element)
+                        metadata["collection_name"] = collection_name
+                        metadata["summary_type"] = "document"
+                        
+                        document = Document(
+                            page_content=content,
+                            metadata=metadata
+                        )
+                        documents.append(document)
+        
+        return documents
 
     def __parse_documents(
         self,
         results: List[List[Dict[str, Union[str, dict]]]]
     ) -> List[Document]:
         """
-        Extract document page content from the results obtained from nv-ingest
+        Parse documents from NV-Ingest results
 
         Arguments:
-            - results: List[List[Dict[str, Union[str, dict]]]] - Results obtained from nv-ingest
+            - results: List[List[Dict[str, Union[str, dict]]]] - Results from NV-Ingest
 
-        Returns
-            - List[Document] - List of documents with page content
+        Returns:
+            - List[Document] - List of parsed documents
         """
-        documents = list()
-        for result in results:
-            for result_element in result:
-
-                # Prepare metadata
-                metadata = self.__prepare_metadata(result_element=result_element)
-
-                # Extract documents page_content and prepare docs
-                page_content = None
-                # For textual data
-                if result_element.get("document_type") == "text":
-                    page_content = result_element.get("metadata")\
-                                                 .get("content")
-
-                # For both tables and charts
-                elif result_element.get("document_type") == "structured":
-                    structured_page_content = result_element.get("metadata")\
-                                                 .get("table_metadata")\
-                                                 .get("table_content")
-                    subtype = result_element.get("metadata").get("content_metadata").get("subtype")
-                    # Check for tables
-                    if subtype == "table" and self._config.nv_ingest.extract_tables:
-                        page_content = structured_page_content
-                    # Check for charts
-                    elif subtype == "chart" and self._config.nv_ingest.extract_charts:
-                        page_content = structured_page_content
-
-                # For image captions
-                elif result_element.get("document_type") == "image" and self._config.nv_ingest.extract_images:
-                    page_content = result_element.get("metadata")\
-                                                 .get("image_metadata")\
-                                                 .get("caption")
-
-                # For audio transcripts
-                elif result_element.get("document_type") == "audio":
-                    page_content = result_element.get("metadata")\
-                                                 .get("audio_metadata")\
-                                                 .get("audio_transcript")
-
-                # Add doc to list
-                if page_content:
-                    documents.append(
-                        Document(
-                            page_content=page_content,
+        documents = []
+        
+        for result_list in results:
+            for result_element in result_list:
+                if result_element.get("type") == "text":
+                    content = result_element.get("content", "")
+                    if content:
+                        metadata = self.__prepare_metadata(result_element)
+                        
+                        document = Document(
+                            page_content=content,
                             metadata=metadata
                         )
-                    )
+                        documents.append(document)
+        
         return documents
-
 
     def __prepare_metadata(
         self, result_element: Dict[str, Union[str, dict]]
     ) -> Dict[str, str]:
         """
-        Prepare metadata object w.r.t. to a single chunk
+        Prepare metadata for a document
 
         Arguments:
-            - result_element: Dict[str, Union[str, dict]]] - Result element for single chunk
+            - result_element: Dict[str, Union[str, dict]] - Result element from NV-Ingest
 
         Returns:
-            - metadata: Dict[str, str] - Dict of metadata for s single chunk
-            {
-                "source": "<filepath>",
-                "chunk_type": "<chunk_type>", # ["text", "image", "table", "chart"]
-                "source_name": "<filename>",
-                "content": "<base64_str encoded content>" # Only for ["image", "table", "chart"]
-            }
+            - Dict[str, str] - Prepared metadata
         """
-        source_id = result_element.get("metadata").get("source_metadata").get("source_id")
-
-        # Get chunk_type
-        if result_element.get("document_type") == "structured":
-            chunk_type = result_element.get("metadata").get("content_metadata").get("subtype")
+        metadata = {}
+        
+        # Extract source information
+        source = result_element.get("source", {})
+        if isinstance(source, dict):
+            metadata["source"] = source.get("source_name", "")
+            metadata["page"] = str(source.get("page", ""))
         else:
-            chunk_type = result_element.get("document_type")
-
-        # Get base64_str encoded content, empty str in case of text
-        content = result_element.get("metadata").get("content") if chunk_type != "text" else ""
-
-        metadata = {
-            "source": source_id, # Add filepath (Key-name same for backward compatibility)
-            "chunk_type": chunk_type, # ["text", "image", "table", "chart"]
-            "source_name": os.path.basename(source_id), # Add filename
-            # "content": content # content encoded in base64_str format [Must not exceed 64KB]
-        }
+            metadata["source"] = str(source)
+        
+        # Extract other metadata
+        result_metadata = result_element.get("metadata", {})
+        if isinstance(result_metadata, dict):
+            for key, value in result_metadata.items():
+                metadata[key] = str(value)
+        
         return metadata
-
 
     async def __generate_summary_for_documents(
         self,
         documents: List[Document]
     ) -> List[Document]:
         """
-        Generate summaries for documents using iterative chunk-wise approach
+        Generate summaries for documents
+
+        Arguments:
+            - documents: List[Document] - List of documents to generate summaries for
+
+        Returns:
+            - List[Document] - List of documents with summaries
         """
-        # Generate document summary
-        summary_llm_name = CONFIG.summarizer.model_name
-        summary_llm_endpoint = CONFIG.summarizer.server_url
-        prompts = get_prompts()
-
-        # TODO: Make these parameters configurable
-        llm_params = {
-            "model": summary_llm_name,
-            "temperature": 0.4,
-            "top_p": 0.9,
-            "max_tokens": 2048
-        }
-
-        if summary_llm_endpoint:
-            llm_params["llm_endpoint"] = summary_llm_endpoint
-
-        summary_llm = get_llm(**llm_params)
-
-        document_summary_prompt = prompts.get("document_summary_prompt")
-        logger.debug(f"Document summary prompt: {document_summary_prompt}")
-
-        # Initial summary prompt for first chunk
-        initial_summary_prompt = ChatPromptTemplate.from_messages([
-            ("system", document_summary_prompt["system"]),
-            ("human", document_summary_prompt["human"])
-        ])
-
-        # Iterative summary prompt for subsequent chunks
-        iterative_summary_prompt_config = prompts.get("iterative_summary_prompt")
-        iterative_summary_prompt = ChatPromptTemplate.from_messages([
-            ("system", iterative_summary_prompt_config["system"]),
-            ("human", iterative_summary_prompt_config["human"])
-        ])
-
-        initial_chain = initial_summary_prompt | summary_llm | StrOutputParser()
-        iterative_chain = iterative_summary_prompt | summary_llm | StrOutputParser()
-
-        # Use configured chunk size
-        max_chunk_chars = CONFIG.summarizer.max_chunk_length
-        chunk_overlap = CONFIG.summarizer.chunk_overlap
-        logger.info(f"Using chunk size: {max_chunk_chars} characters")
-
-        if not len(documents):
-            logger.error(f"No content returned from nv-ingest to summarize. Skipping summary generation.")
-            return []
-
-        for document in documents:
-            document_text = document.page_content
-
-            # Check if document fits in single request
-            if len(document_text) <= max_chunk_chars:
-                # Process as single chunk
-                logger.info(f"Processing document {document.metadata['filename']} as single chunk")
-                summary = await initial_chain.ainvoke({"document_text": document_text}, config={'run_name':'document-summary'})
-            else:
-                # Process in chunks iteratively using LangChain's text splitter
-                text_splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=max_chunk_chars,
-                    chunk_overlap=chunk_overlap,
-                    length_function=len,
-                    separators=["\n\n", "\n", ". ", "! ", "? ", " ", ""]
-                )
-                text_chunks = text_splitter.split_text(document_text)
-                logger.info(f"Processing document {document.metadata['filename']} in {len(text_chunks)} chunks")
-
-                # Generate initial summary from first chunk
-                summary = await initial_chain.ainvoke({"document_text": text_chunks[0]}, config={'run_name':'document-summary-initial'})
-
-                # Iteratively update summary with remaining chunks
-                for i, chunk in enumerate(text_chunks[1:], 1):
-                    logger.info(f"Processing chunk {i+1}/{len(text_chunks)} for {document.metadata['filename']}")
-                    summary = await iterative_chain.ainvoke({
-                        "previous_summary": summary,
-                        "new_chunk": chunk
-                    }, config={'run_name': f'document-summary-chunk-{i+1}'})
-                    logger.debug(f"Summary for chunk {i+1}/{len(text_chunks)} for {document.metadata['filename']}: {summary}")
-
-            document.metadata["summary"] = summary
-            logger.debug(f"Document summary for {document.metadata['filename']}: {summary}")
-
-        logger.info(f"Document summary generation complete!")
-        return documents
-
+        if not documents:
+            return documents
+        
+        try:
+            # Get LLM for summary generation
+            llm = get_llm()
+            prompts = get_prompts()
+            
+            # Create summary prompt
+            summary_prompt = ChatPromptTemplate.from_template(
+                "Please provide a concise summary of the following document content:\n\n{content}\n\nSummary:"
+            )
+            
+            # Create summary chain
+            summary_chain = summary_prompt | llm | StrOutputParser()
+            
+            # Generate summaries
+            for document in documents:
+                try:
+                    summary = await summary_chain.ainvoke({"content": document.page_content})
+                    document.metadata["summary"] = summary
+                except Exception as e:
+                    logger.error(f"Failed to generate summary for document: {e}")
+                    document.metadata["summary"] = "Summary generation failed"
+            
+            return documents
+            
+        except Exception as e:
+            logger.error(f"Failed to generate summaries: {e}")
+            return documents
 
     async def __put_document_summary_to_minio(
         self,
@@ -1286,32 +1029,46 @@ class NvidiaRAGIngestor():
         """
         Put document summary to minio
         """
-        if not len(documents):
+        if not documents:
             logger.error(f"No documents to put to minio")
             return
 
-        for document in documents:
-            summary = document.metadata["summary"]
-            file_name = document.metadata["filename"]
-            collection_name = document.metadata["collection_name"]
-            page_number = 0
-            location = []
+        logger.info(f"== Document summary insertion to MinIO started ==")
+        start_time = time.time()
 
-            unique_thumbnail_id = get_unique_thumbnail_id(
-                collection_name=f"summary_{collection_name}",
-                file_name=file_name,
-                page_number=page_number,
-                location=location
-            )
+        try:
+            for document in documents:
+                try:
+                    file_name = document.metadata.get("source", "unknown")
+                    summary = document.metadata.get("summary", "")
+                    
+                    if summary and summary != "Summary generation failed":
+                        # Generate unique ID for the summary
+                        unique_id = get_unique_thumbnail_id_file_name_prefix(file_name)
+                        
+                        # Create payload for MinIO
+                        payload = {
+                            "id": unique_id,
+                            "content": summary,
+                            "type": "summary",
+                            "source": {"source_name": file_name},
+                            "metadata": document.metadata
+                        }
+                        
+                        # Upload to MinIO
+                        MINIO_OPERATOR.put_payload(
+                            payload=payload,
+                            collection_prefix=document.metadata.get("collection_name", "default")
+                        )
+                        
+                        logger.debug(f"Document summary for {file_name} ingested to minio")
+                
+                except Exception as e:
+                    logger.error(f"Failed to put document summary to minio: {e}")
+                    continue
 
-            MINIO_OPERATOR.put_payload(
-                payload={
-                    "summary": summary,
-                    "file_name": file_name,
-                    "collection_name": collection_name
-                },
-                object_name=unique_thumbnail_id
-            )
-            logger.debug(f"Document summary for {file_name} ingested to minio")
+            end_time = time.time()
+            logger.info(f"Document summary insertion completed to minio!")
 
-        logger.info(f"Document summary insertion completed to minio!")
+        except Exception as e:
+            logger.error(f"Failed to put document summaries to minio: {e}")

@@ -56,7 +56,7 @@ source nv-ingest-env/bin/activate  # On Linux/Mac
 .\nv-ingest-env\Scripts\activate  # On Windows
 
 # Install required packages
-uv pip install nv-ingest-api==25.6.2 nv-ingest-client==25.6.2 tritonclient==2.57.0 pymilvus==2.5.8 pymilvus[model] pymilvus[bulk-writer]
+uv pip install nv-ingest-api==25.6.2 nv-ingest-client==25.6.2 tritonclient==2.57.0 pinecone-client>=2.2.4
 ```
 
 Using pip:
@@ -68,7 +68,7 @@ source nv-ingest-env/bin/activate  # On Linux/Mac
 .\nv-ingest-env\Scripts\activate  # On Windows
 
 # Install required packages
-pip install nv-ingest-api==25.6.2 nv-ingest-client==25.6.2 tritonclient==2.57.0 pymilvus==2.5.8 pymilvus[model] pymilvus[bulk-writer]
+pip install nv-ingest-api==25.6.2 nv-ingest-client==25.6.2 tritonclient==2.57.0 pinecone-client>=2.2.4
 ```
 
 3. Create a Python script to ingest documents. Here's a placeholder script that you can customize:
@@ -84,8 +84,8 @@ FILEPATHS = [
 
 COLLECTION_NAME = "multimodal_data_nvingest"
 
-MILVUS_URI = "http://localhost:19530"
-MINIO_ENDPOINT = "localhost:9010"
+PINECONE_API_KEY = "your-pinecone-api-key"
+PINECONE_ENVIRONMENT = "your-pinecone-environment"
 
 # Server Mode (Create NV-Ingest client)
 client = NvIngestClient(
@@ -116,8 +116,8 @@ ingestor = ingestor.embed()
 
 ingestor = ingestor.vdb_upload(
                 collection_name=COLLECTION_NAME,
-                milvus_uri=MILVUS_URI,
-                minio_endpoint=MINIO_ENDPOINT,
+                pinecone_api_key=PINECONE_API_KEY,
+                pinecone_environment=PINECONE_ENVIRONMENT,
                 sparse=False,
                 enable_images=True,
                 recreate=False,

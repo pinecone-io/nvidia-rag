@@ -211,7 +211,7 @@ class FailedCollection(BaseModel):
     error_message: str = Field("", description="Error message from the collection creation or deletion process.")
 
 class CollectionsResponse(BaseModel):
-    """Response model for creation or deletion of collections in Milvus."""
+    """Response model for creation or deletion of collections in vector database."""
     message: str = Field(..., description="Status message of the process.")
     successful: List[str] = Field(default_factory=list, description="List of successfully created or deleted collections.")
     failed: List[FailedCollection] = Field(default_factory=list, description="List of collections that failed to be created or deleted.")
@@ -219,7 +219,7 @@ class CollectionsResponse(BaseModel):
     total_failed: int = Field(0, description="Total number of collections that failed to be created or deleted.")
 
 class CreateCollectionResponse(BaseModel):
-    """Response model for creation or deletion of a collection in Milvus."""
+    """Response model for creation or deletion of a collection in vector database."""
     message: str = Field(..., description="Status message of the process.")
     collection_name: str = Field(..., description="Name of the collection.")
 
@@ -539,7 +539,7 @@ async def delete_documents(_: Request, document_names: List[str] = [], collectio
 )
 async def get_collections(vdb_endpoint: str = Query(default=os.getenv("APP_VECTORSTORE_URL"), include_in_schema=False)) -> CollectionListResponse:
     """
-    Endpoint to get a list of collection names from the Milvus server.
+    Endpoint to get a list of collection names from the vector database server.
     Returns a list of collection names.
     """
     try:
@@ -592,7 +592,7 @@ async def create_collections(
     embedding_dimension: int = 2048
 ) -> CollectionsResponse:
     """
-    Endpoint to create a collection from the Milvus server.
+    Endpoint to create a collection from the vector database server.
     Returns status message.
     """
     try:
@@ -639,7 +639,7 @@ async def create_collection(
     data: CreateCollectionRequest
 ) -> CreateCollectionResponse:
     """
-    Endpoint to create a collection from the Milvus server.
+    Endpoint to create a collection from the vector database server.
     Returns status message.
     """
     try:
@@ -689,7 +689,7 @@ async def create_collection(
 )
 async def delete_collections(vdb_endpoint: str = Query(default=os.getenv("APP_VECTORSTORE_URL"), include_in_schema=False), collection_names: List[str] = [os.getenv("COLLECTION_NAME")]) -> CollectionsResponse:
     """
-    Endpoint to delete a collection from the Milvus server.
+    Endpoint to delete a collection from the vector database server.
     Returns status message.
     """
     try:

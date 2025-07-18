@@ -95,7 +95,7 @@ def check_context_relevance(retriever_query: str,
         ranker: Optional document ranker instance
         reflection_counter: ReflectionCounter instance to track loop count
         enable_reranker: Whether to use the reranker if available
-        filter_expr: Filter expression to filter the retrieved documents from Milvus collection
+        filter_expr: Filter expression to filter the retrieved documents from vector database collection
 
     Returns:
         Tuple[List[str], bool]: Retrieved documents and whether they meet relevance threshold

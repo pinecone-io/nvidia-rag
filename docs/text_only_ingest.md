@@ -38,7 +38,6 @@ For ingesting text only files, developers do not need to deploy the complete pip
 4. Once the ingestion and rag servers are deployed, open the [ingestion notebook](../notebooks/ingestion_api_usage.ipynb) and follow the steps. While trying out the the `Upload Document Endpoint` set the payload to below.
    ```bash
        data = {
-        "vdb_endpoint": "http://milvus:19530",
         "collection_name": collection_name,
         "split_options": {
             "chunk_size": 1024,
@@ -75,8 +74,7 @@ When you install the Helm chart, enable only the following services that are req
 - `text-reranking-nim`
 - `nemoretriever-page-elements-v2`
 - `nim-llm`
-- `milvus`
-- `minio`
+- `pinecone` (configured via API key)
 
 Additionally, ensure that **table extraction**, **chart extraction**, and **image extraction** are disabled.
 

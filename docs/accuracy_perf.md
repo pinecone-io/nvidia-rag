@@ -53,7 +53,7 @@ These parameters allow fine-tuning RAG performance based on specific accuracy vs
   - ❌ May need a seperate judge LLM model to be deployed increasing GPU requirement.
   - Check out [this](./self-reflection.md) section to learn more. Default is off.
 
-- **Enable Hybrid search in Milvus**
+- **Enable Hybrid search in Pinecone**
   - ✅ May provide better retrieval accuracy for domain-specific content
   - ❌ May induce slightly higher latency for large number of documents; default setting is dense search.
 
@@ -63,7 +63,7 @@ These parameters allow fine-tuning RAG performance based on specific accuracy vs
   - ✅ **Session**: Searches include all data inserted by the current client session
   - Controlled via `APP_VECTORSTORE_CONSISTENCYLEVEL` environment variable. Default is "Strong".
   - **Trade-off**: Use "Bounded" consistency level for better performance, and "Strong" to ensure highest accuracy
-  - **Reference**: [Milvus Consistency Level Documentation](https://milvus.io/docs/consistency.md)
+  - **Reference**: [Pinecone Consistency Level Documentation](https://docs.pinecone.io/docs/consistency)
 
 - **Enable NeMo Guardrails**
   - ✅ Applies input/output constraints for better safety and consistency

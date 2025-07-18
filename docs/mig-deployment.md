@@ -140,7 +140,7 @@ Resource                                    Requested   Limit    Allocatable  Fr
 nvidia.com/mig-2g.20gb                      (100%) 9.0   (100%) 9.0     3.0        0.0
 ├─ rag-nvidia-nim-llama-...                1.0     1.0
 ├─ rag-text-reranking-nim-...              1.0     1.0
-├─ milvus-standalone-...                   1.0     1.0
+├─ vector-database-...                     1.0     1.0
 ├─ nv-ingest-paddle-...                    1.0     1.0
 ├─ rag-nemoretriever-graphic-...           1.0     1.0
 ├─ rag-nemoretriever-page-...              1.0     1.0
