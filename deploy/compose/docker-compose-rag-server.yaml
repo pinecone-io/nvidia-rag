@@ -28,9 +28,9 @@ services:
 
       ##===Vector DB specific configurations===
       # URL on which vectorstore is hosted
-      APP_VECTORSTORE_URL: "http://milvus:19530"
+      APP_VECTORSTORE_URL: "http://pinecone:5080"
       # Type of vectordb used to store embedding supported type milvus
-      APP_VECTORSTORE_NAME: "milvus"
+      APP_VECTORSTORE_NAME: "pinecone"
       # Type of index to be used for vectorstore
       APP_VECTORSTORE_INDEXTYPE: ${APP_VECTORSTORE_INDEXTYPE:-"GPU_CAGRA"}
       # Type of vectordb search to be used

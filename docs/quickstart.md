@@ -315,7 +315,6 @@ Use the following procedure to start all containers needed for this blueprint. T
    # Set Pinecone configuration
    export VECTOR_STORE_NAME="pinecone"
    export APP_VECTORSTORE_URL="https://api.pinecone.io"
-   export PINECONE_API_KEY="<your-pinecone-api-key>"
    ```
 
 4. Start the ingestion containers from the repo root. This pulls the prebuilt containers from NGC and deploys it on your system.

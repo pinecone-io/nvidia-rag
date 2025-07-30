@@ -32,7 +32,7 @@ from langchain_core.runnables import RunnableAssign
 
 from nvidia_rag.utils.llm import get_llm, get_prompts
 from nvidia_rag.utils.common import get_env_variable
-from nvidia_rag.utils.vectorstore import retreive_docs_from_retriever
+from nvidia_rag.utils.vectorstore import retrieve_docs_from_retriever
 
 logger = logging.getLogger(__name__)
 prompts = get_prompts()
@@ -139,7 +139,7 @@ def check_context_relevance(retriever_query: str,
             # Perform parallel retrieval from all vector stores
             docs = []
             with ThreadPoolExecutor() as executor:
-                futures = [executor.submit(retreive_docs_from_retriever, retriever=retriever, retriever_query=current_query, expr=filter_expr) for retriever in retrievers]
+                futures = [executor.submit(retrieve_docs_from_retriever, retriever=retriever, retriever_query=current_query, expr=filter_expr) for retriever in retrievers]
                 for future in futures:
                     docs.extend(future.result())
 
@@ -147,7 +147,7 @@ def check_context_relevance(retriever_query: str,
             original_docs = docs.get("context", [])
         else:
             # Perform sequential retrieval from the first vector store
-            original_docs = retreive_docs_from_retriever(retriever=retrievers[0], retriever_query=current_query, expr=filter_expr)
+            original_docs = retrieve_docs_from_retriever(retriever=retrievers[0], retriever_query=current_query, expr=filter_expr)
 
         docs = [d.page_content for d in original_docs]
 

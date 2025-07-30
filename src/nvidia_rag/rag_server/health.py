@@ -133,24 +133,18 @@ async def check_minio_health(endpoint: str, access_key: str, secret_key: str) ->
 
     return status
 
-async def check_pinecone_health(url: str) -> Dict[str, Any]:
-    """Check Pinecone database health"""
+async def check_pinecone_health() -> Dict[str, Any]:
+    """Check Pinecone database health using the Pinecone SDK directly."""
     status = {
         "service": "Pinecone",
-        "url": url,
         "status": "unknown",
         "error": None
     }
 
-    if not url:
-        status["status"] = "skipped"
-        status["error"] = "No URL provided"
-        return status
-
     try:
         start_time = time.time()
         config = get_config()
-        
+
         if config.vector_store.name == "pinecone":
             from pinecone import Pinecone
             pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
@@ -211,8 +205,7 @@ async def check_all_services_health() -> Dict[str, List[Dict[str, Any]]]:
         )))
 
     # Vector DB (Pinecone) health check
-    if config.vector_store.url:
-        tasks.append(("databases", check_pinecone_health(config.vector_store.url)))
+    tasks.append(("databases", check_pinecone_health()))
 
     # LLM service health check
     if config.llm.server_url and not is_nvidia_api_catalog_url(config.llm.server_url):

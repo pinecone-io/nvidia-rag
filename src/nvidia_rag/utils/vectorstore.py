@@ -123,8 +123,8 @@ def create_collection(collection_name: str, vdb_endpoint: str, dimension: int = 
         except Exception as e:
             logger.error(f"Failed to create collection {collection_name}: {str(e)}")
             raise Exception(f"Failed to create collection {collection_name}: {str(e)}")
-    else:
-        raise ValueError(f"{config.vector_store.name} vector database is not supported")
+        else:
+            raise ValueError(f"{config.vector_store.name} vector database is not supported")
 
 
 def create_collections(collection_names: List[str], vdb_endpoint: str, dimension: int = 2048, collection_type: str = "text") -> Dict[str, any]:
@@ -133,7 +133,7 @@ def create_collections(collection_names: List[str], vdb_endpoint: str, dimension
     """
     config = get_config()
     results = {}
-    
+
     for collection_name in collection_names:
         try:
             create_collection(collection_name, vdb_endpoint, dimension, collection_type)
@@ -141,14 +141,14 @@ def create_collections(collection_names: List[str], vdb_endpoint: str, dimension
         except Exception as e:
             results[collection_name] = {"status": "failed", "error": str(e)}
             logger.error(f"Failed to create collection {collection_name}: {str(e)}")
-    
+
     return results
 
 
 def get_collection(vdb_endpoint: str = "") -> Dict[str, Any]:
     """Get list of all collections in vectorstore along with the number of rows in each collection."""
     config = get_config()
-    
+
     if config.vector_store.name.lower() == "pinecone" or config.vector_store.name.lower() == "pinecone-local":
         if config.vector_store.name.lower() == "pinecone":
             pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
@@ -158,7 +158,7 @@ def get_collection(vdb_endpoint: str = "") -> Dict[str, Any]:
         try:
             # Get list of indexes
             indexes = pinecone_client.list_indexes()
-            
+
             # Get stats for each index
             collection_info = []
             for index_name in indexes:
@@ -254,7 +254,7 @@ def get_docs_vectorstore_langchain(
             raise ValueError(f"{settings.vector_store.name} vector database is not supported")
     except Exception as e:
         logger.error(f"Error in get_docs_vectorstore_langchain: {str(e)}")
-        return []
+    return []
 
 
 def del_docs_vectorstore_langchain(vectorstore: VectorStore, filenames: List[str], collection_name: str="", include_upload_path: bool = False) -> bool:
@@ -285,7 +285,7 @@ def del_docs_vectorstore_langchain(vectorstore: VectorStore, filenames: List[str
         return False
 
 
-def retreive_docs_from_retriever(retriever, retriever_query: str, expr: str, otel_ctx: otel_context) -> List[Document]:
+def retrieve_docs_from_retriever(retriever, retriever_query: str, expr: str, otel_ctx: otel_context) -> List[Document]:
     """Retrieve documents from the retriever.
 
     Args:

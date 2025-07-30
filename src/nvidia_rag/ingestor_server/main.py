@@ -73,6 +73,7 @@ from nvidia_rag.utils.vectorstore import (
     get_collection,
     delete_collections,
 )
+from pinecone import Pinecone
 
 # Initialize global objects
 logger = logging.getLogger(__name__)
@@ -102,23 +103,12 @@ class NvidiaRAGIngestor():
         filepaths: List[str],
         delete_files_after_ingestion: bool = False,
         blocking: bool = False,
-        vdb_endpoint: str = CONFIG.vector_store.url,
         collection_name: str = "multimodal_data",
         split_options: Dict[str, Any] = {"chunk_size": CONFIG.nv_ingest.chunk_size, "chunk_overlap": CONFIG.nv_ingest.chunk_overlap},
         custom_metadata: List[Dict[str, Any]] = [],
         generate_summary: bool = False
     ) -> Dict[str, Any]:
-        """Upload documents to the vector store.
-
-        Args:
-            filepaths (List[str]): List of absolute filepaths to upload
-            delete_files_after_ingestion (bool, optional): Whether to delete files after ingestion. Defaults to False.
-            blocking (bool, optional): Whether to block until ingestion completes. Defaults to False.
-            vdb_endpoint (str, optional): URL of vector database endpoint. Defaults to VECTOR_STORE_URL env var or "http://localhost:19530".
-            collection_name (str, optional): Name of collection in vector database. Defaults to "multimodal_data".
-            split_options (Dict[str, Any], optional): Options for splitting documents. Defaults to chunk_size and chunk_overlap from settings.
-            custom_metadata (List[Dict[str, Any]], optional): Custom metadata to add to documents. Defaults to empty list.
-        """
+        """Upload documents to the vector store using Pinecone SDK."""
 
         try:
 
@@ -126,7 +116,6 @@ class NvidiaRAGIngestor():
                 _task = lambda: self.__ingest_docs(
                     filepaths=filepaths,
                     delete_files_after_ingestion=delete_files_after_ingestion,
-                    vdb_endpoint=vdb_endpoint,
                     collection_name=collection_name,
                     split_options=split_options,
                     custom_metadata=custom_metadata,
@@ -138,7 +127,6 @@ class NvidiaRAGIngestor():
                 response_dict = await self.__ingest_docs(
                     filepaths=filepaths,
                     delete_files_after_ingestion=delete_files_after_ingestion,
-                    vdb_endpoint=vdb_endpoint,
                     collection_name=collection_name,
                     split_options=split_options,
                     custom_metadata=custom_metadata,
@@ -159,7 +147,6 @@ class NvidiaRAGIngestor():
         self,
         filepaths: List[str],
         delete_files_after_ingestion: bool = False,
-        vdb_endpoint: str = None,
         collection_name: str = "multimodal_data",
         split_options: Dict[str, Any] = {"chunk_size": CONFIG.nv_ingest.chunk_size, "chunk_overlap": CONFIG.nv_ingest.chunk_overlap},
         custom_metadata: List[Dict[str, Any]] = [],
@@ -172,20 +159,18 @@ class NvidiaRAGIngestor():
         Arguments:
             - filepaths: List[str] - List of absolute filepaths
             - delete_files_after_ingestion: bool - Whether to delete files after ingestion
-            - vdb_endpoint: str - URL of the vector database endpoint
             - collection_name: str - Name of the collection in the vector database
             - split_options: Dict[str, Any] - Options for splitting documents
             - custom_metadata: List[Dict[str, Any]] - Custom metadata to be added to documents
         """
 
-        vdb_endpoint = vdb_endpoint or CONFIG.vector_store.url
         logger.info("Performing ingestion in collection_name: %s", collection_name)
         logger.debug("Filepaths for ingestion: %s", filepaths)
 
         try:
             # Verify the metadata
             if custom_metadata:
-                validation_status, validation_errors = await self.__verify_metadata(custom_metadata, collection_name, vdb_endpoint, filepaths)
+                validation_status, validation_errors = await self.__verify_metadata(custom_metadata, collection_name, filepaths)
                 if not validation_status:
                     return {
                         "message": f"Custom metadata validation failed: {validation_errors}",
@@ -200,23 +185,14 @@ class NvidiaRAGIngestor():
 
             # Peform ingestion using nvingest for all files that have not failed
             # Check if the provided collection_name exists in vector-DB
-            config = get_config()
-            if config.vector_store.name == "pinecone" or config.vector_store.name == "pinecone-local":
-                from pinecone import Pinecone
-                if config.vector_store.name == "pinecone":
-                    pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
-                else:
-                    pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
-                if not pinecone_client.has_index(collection_name):
-                    raise ValueError(f"Pinecone index {collection_name} does not exist. Ensure the index is created before ingestion.")
-            else:
-                raise ValueError(f"{config.vector_store.name} vector database is not supported for ingestion.")
+            pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+            if not pinecone_client.has_index(collection_name):
+                raise ValueError(f"Pinecone index {collection_name} does not exist. Ensure the index is created before ingestion.")
 
             start_time = time.time()
             results, failures = await self.__nvingest_upload_doc(
                 filepaths=filepaths,
                 collection_name=collection_name,
-                vdb_endpoint=vdb_endpoint,
                 split_options=split_options,
                 custom_metadata=custom_metadata,
                 generate_summary=generate_summary
@@ -225,7 +201,7 @@ class NvidiaRAGIngestor():
             logger.info("== Overall Ingestion completed successfully in %s seconds ==", time.time() - start_time)
 
             # Get failed documents
-            failed_documents = await self.__get_failed_documents(failures, filepaths, collection_name, vdb_endpoint)
+            failed_documents = await self.__get_failed_documents(failures, filepaths, collection_name)
             failures_filepaths = [failed_document.get("document_name") for failed_document in failed_documents]
 
             filename_to_metadata_map = {custom_metadata_item.get("filename"): custom_metadata_item.get("metadata") for custom_metadata_item in custom_metadata}
@@ -297,7 +273,6 @@ class NvidiaRAGIngestor():
         filepaths: List[str],
         delete_files_after_ingestion: bool = False,
         blocking: bool = False,
-        vdb_endpoint: str = None,
         collection_name: str = "multimodal_data",
         split_options: Dict[str, Any] = {"chunk_size": CONFIG.nv_ingest.chunk_size, "chunk_overlap": CONFIG.nv_ingest.chunk_overlap},
         custom_metadata: List[Dict[str, Any]] = [],
@@ -306,8 +281,6 @@ class NvidiaRAGIngestor():
 
         """Upload a document to the vector store. If the document already exists, it will be replaced."""
 
-        vdb_endpoint = vdb_endpoint or CONFIG.vector_store.url
-
         for file in filepaths:
             file_name = os.path.basename(file)
 
@@ -315,13 +288,10 @@ class NvidiaRAGIngestor():
 
             if delete_files_after_ingestion:
                 response = self.delete_documents([file_name],
-                                                    collection_name=collection_name,
-                                                    vdb_endpoint=vdb_endpoint,
-                                                    include_upload_path=True)
+                                                    collection_name=collection_name)
             else:
                  response = self.delete_documents([file],
-                                                    collection_name=collection_name,
-                                                    vdb_endpoint=vdb_endpoint)
+                                                    collection_name=collection_name)
 
             if response["total_documents"] == 0:
                 logger.info("Unable to remove %s from collection. Either the document does not exist or there is an error while removing. Proceeding with ingestion.", file_name)
@@ -332,7 +302,6 @@ class NvidiaRAGIngestor():
             filepaths=filepaths,
             delete_files_after_ingestion=delete_files_after_ingestion,
             blocking=blocking,
-            vdb_endpoint=vdb_endpoint,
             collection_name=collection_name,
             split_options=split_options,
             custom_metadata=custom_metadata,
@@ -405,7 +374,7 @@ class NvidiaRAGIngestor():
             result = create_collections(collection_names, vdb_endpoint, embedding_dimension)
             return f"Collections created successfully: {result}"
         except Exception as e:
-            logger.error(f"Failed to create collections in pinecone: {e}")
+            logger.error(f"Failed to create collections in Pinecone: {e}")
             raise e
 
     def create_collection(
@@ -427,7 +396,7 @@ class NvidiaRAGIngestor():
             create_collection(collection_name, vdb_endpoint, embedding_dimension)
             return f"Collection '{collection_name}' created successfully"
         except Exception as e:
-            logger.error(f"Failed to create collection in pinecone: {e}")
+            logger.error(f"Failed to create collection in Pinecone: {e}")
             raise e
 
     def delete_collections(
@@ -450,7 +419,7 @@ class NvidiaRAGIngestor():
                 "result": result
             }
         except Exception as e:
-            logger.error(f"Failed to delete collections in pinecone: {e}")
+            logger.error(f"Failed to delete collections in Pinecone: {e}")
             raise e
 
     def get_collections(self, vdb_endpoint: str) -> Dict[str, Any]:
@@ -470,7 +439,7 @@ class NvidiaRAGIngestor():
                 "collections": result
             }
         except Exception as e:
-            logger.error(f"Failed to get collections from pinecone: {e}")
+            logger.error(f"Failed to get collections from Pinecone: {e}")
             raise e
 
     def get_documents(self, collection_name: str, vdb_endpoint: str) -> Dict[str, Any]:
@@ -500,7 +469,7 @@ class NvidiaRAGIngestor():
                 "documents": documents
             }
         except Exception as e:
-            logger.error(f"Failed to get documents from pinecone: {e}")
+            logger.error(f"Failed to get documents from Pinecone: {e}")
             return {
                 "message": f"Document listing failed due to error {str(e)}",
                 "total_documents": 0,
@@ -543,7 +512,7 @@ class NvidiaRAGIngestor():
                     "documents": []
                 }
         except Exception as e:
-            logger.error(f"Failed to delete documents from pinecone: {e}")
+            logger.error(f"Failed to delete documents from Pinecone: {e}")
             return {
                 "message": f"Document deletion failed due to error {str(e)}",
                 "total_documents": 0,
@@ -612,7 +581,6 @@ class NvidiaRAGIngestor():
         self,
         filepaths: List[str],
         collection_name: str,
-        vdb_endpoint: str,
         split_options: Dict[str, Any] = {"chunk_size": CONFIG.nv_ingest.chunk_size, "chunk_overlap": CONFIG.nv_ingest.chunk_overlap},
         custom_metadata: List[Dict[str, Any]] = [],
         generate_summary: bool = False
@@ -623,7 +591,6 @@ class NvidiaRAGIngestor():
         Arguments:
             - filepaths: List[str] - List of absolute filepaths
             - collection_name: str - Name of the collection in the vector database
-            - vdb_endpoint: str - URL of the vector database endpoint
             - split_options: Dict[str, Any] - Options for splitting documents
             - custom_metadata: List[Dict[str, Any]] - Custom metadata to be added to documents
             - generate_summary: bool - Whether to generate summaries for documents
@@ -649,7 +616,6 @@ class NvidiaRAGIngestor():
                         return await self.__nv_ingest_ingestion(
                             filepaths=sub_filepaths,
                             collection_name=collection_name,
-                            vdb_endpoint=vdb_endpoint,
                             batch_number=batch_num,
                             split_options=split_options,
                             custom_metadata=custom_metadata,
@@ -686,7 +652,6 @@ class NvidiaRAGIngestor():
                         batch_result, batch_failures = await self.__nv_ingest_ingestion(
                             filepaths=batch,
                             collection_name=collection_name,
-                            vdb_endpoint=vdb_endpoint,
                             batch_number=batch_num,
                             split_options=split_options,
                             custom_metadata=custom_metadata,
@@ -699,7 +664,6 @@ class NvidiaRAGIngestor():
                 results, failures = await self.__nv_ingest_ingestion(
                     filepaths=filepaths,
                     collection_name=collection_name,
-                    vdb_endpoint=vdb_endpoint,
                     split_options=split_options,
                     custom_metadata=custom_metadata,
                     generate_summary=generate_summary
@@ -718,7 +682,6 @@ class NvidiaRAGIngestor():
         self,
         filepaths: List[str],
         collection_name: str,
-        vdb_endpoint: str,
         batch_number: int=0,
         split_options: Dict[str, Any] = {"chunk_size": CONFIG.nv_ingest.chunk_size, "chunk_overlap": CONFIG.nv_ingest.chunk_overlap},
         custom_metadata: List[Dict[str, Any]] = [],
@@ -730,7 +693,6 @@ class NvidiaRAGIngestor():
         Arguments:
             - filepaths: List[str] - List of absolute filepaths
             - collection_name: str - Name of the collection in the vector database
-            - vdb_endpoint: str - URL of the vector database endpoint
             - batch_number: int - Batch number for logging
             - split_options: Dict[str, Any] - Options for splitting documents
             - custom_metadata: List[Dict[str, Any]] - Custom metadata to be added to documents
@@ -748,7 +710,6 @@ class NvidiaRAGIngestor():
                 NV_INGEST_CLIENT_INSTANCE,
                 filepaths=filepaths,
                 collection_name=collection_name,
-                vdb_endpoint=vdb_endpoint,
                 split_options=split_options,
                 custom_metadata=custom_metadata
             )
@@ -784,8 +745,7 @@ class NvidiaRAGIngestor():
         self,
         failures: List[Dict[str, Any]],
         filepaths: List[str],
-        collection_name: str,
-        vdb_endpoint: str
+        collection_name: str
     ) -> List[Dict[str, Any]]:
         """
         Get failed documents from the vector store
@@ -794,7 +754,6 @@ class NvidiaRAGIngestor():
             - failures: List[Dict[str, Any]] - List of failures from NV-Ingest
             - filepaths: List[str] - List of filepaths that were processed
             - collection_name: str - Name of the collection in the vector database
-            - vdb_endpoint: str - URL of the vector database endpoint
 
         Returns:
             - List[Dict[str, Any]] - List of failed documents with error details
@@ -834,7 +793,6 @@ class NvidiaRAGIngestor():
             self,
             custom_metadata: List[Dict[str, Any]],
             collection_name: str,
-            vdb_endpoint: str,
             filepaths: List[str]
         ) -> Tuple[bool, Dict[str, Any]]:
         """
@@ -843,7 +801,6 @@ class NvidiaRAGIngestor():
         Arguments:
             - custom_metadata: List[Dict[str, Any]] - Custom metadata to verify
             - collection_name: str - Name of the collection in the vector database
-            - vdb_endpoint: str - URL of the vector database endpoint
             - filepaths: List[str] - List of filepaths being processed
 
         Returns:

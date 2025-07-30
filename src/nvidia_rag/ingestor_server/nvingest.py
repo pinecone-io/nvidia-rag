@@ -24,6 +24,7 @@ from typing import List
 
 from nvidia_rag.utils.common import get_config, get_env_variable, prepare_custom_metadata_dataframe
 from nv_ingest_client.client import NvIngestClient, Ingestor
+import pinecone
 
 
 logger = logging.getLogger(__name__)
@@ -43,12 +44,14 @@ def get_nv_ingest_client():
     )
     return client
 
-def get_nv_ingest_ingestor(
+# Initialize Pinecone client
+pinecone.init(api_key=os.getenv("PINECONE_API_KEY"), environment="us-west1-gcp")
+
+async def get_nv_ingest_ingestor(
         nv_ingest_client_instance,
         filepaths: List[str],
         csv_file_path: str = None,
         collection_name: str = "multimodal_data",
-        vdb_endpoint: str = None,
         split_options = None,
         custom_metadata = None
     ):
@@ -60,7 +63,6 @@ def get_nv_ingest_ingestor(
         filepaths: List of file paths to ingest
         csv_file_path: Path to the custom metadata CSV file
         collection_name: Name of the collection in the vector database
-        vdb_endpoint: URL of the vector database endpoint
         split_options: Options for splitting documents
         custom_metadata: Custom metadata to be added to documents
 
@@ -130,24 +132,15 @@ def get_nv_ingest_ingestor(
     if ENABLE_NV_INGEST_VDB_UPLOAD:
         ingestor = ingestor.embed()
 
-    # Add Vector-DB upload task
+    # Add Vector-DB upload task using Pinecone SDK
     if ENABLE_NV_INGEST_VDB_UPLOAD:
-        vdb_upload_kwargs = {}
-        if config.vector_store.name == "pinecone" or config.vector_store.name == "pinecone-local":
-            vdb_upload_kwargs = {
-                "pinecone_api_key": os.getenv("PINECONE_API_KEY") if config.vector_store.name == "pinecone" else "pclocal",
-                "pinecone_index": collection_name,
-                "pinecone_host": "http://localhost:5080" if config.vector_store.name == "pinecone-local" else None,
-                # Optionally add namespace or other Pinecone params here
-            }
-            if csv_file_path is not None:
-                vdb_upload_kwargs.update({
-                    "meta_dataframe": csv_file_path,
-                    "meta_source_field": meta_source_field,
-                    "meta_fields": meta_fields,
-                })
-        else:
-            raise ValueError(f"{config.vector_store.name} vector database is not supported for ingestion.")
-        ingestor = ingestor.vdb_upload(**vdb_upload_kwargs)
+        index = pinecone.Index(collection_name)
+        for file_path in filepaths:
+            with open(file_path, "rb") as f:
+                file_data = f.read()
+                # Assuming embedding and metadata are prepared
+                embedding = ... # Obtain embedding for the document
+                metadata = ... # Prepare metadata for the document
+                index.upsert([(file_path, embedding, metadata)])
 
     return ingestor

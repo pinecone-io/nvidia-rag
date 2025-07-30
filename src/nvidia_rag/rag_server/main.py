@@ -45,13 +45,16 @@ from opentelemetry import context as otel_context
 from nvidia_rag.utils.common import get_config, validate_filter_expr
 from nvidia_rag.utils.embedding import get_embedding_model
 from nvidia_rag.rag_server.response_generator import prepare_llm_request, generate_answer, prepare_citations, Citations, retrieve_summary
-from nvidia_rag.utils.vectorstore import create_vectorstore_langchain, get_vectorstore, retreive_docs_from_retriever
+from nvidia_rag.utils.vectorstore import create_vectorstore_langchain, get_vectorstore, retrieve_docs_from_retriever
 from nvidia_rag.utils.llm import get_llm, get_prompts, get_streaming_filter_think_parser
 from nvidia_rag.utils.reranker import get_ranking_model
 from nvidia_rag.rag_server.reflection import ReflectionCounter, check_context_relevance, check_response_groundedness
 from nvidia_rag.rag_server.health import check_all_services_health
 from nvidia_rag.rag_server.vlm import VLM
 from nvidia_rag.rag_server.validation import validate_model_info, validate_use_knowledge_base, validate_temperature, validate_top_p, validate_reranker_k
+
+# Import Pinecone SDK
+from pinecone import Pinecone
 
 logger = logging.getLogger(__name__)
 CONFIG = get_config()
@@ -76,6 +79,9 @@ except Exception as ex:
     VECTOR_STORE = None
     logger.error("Unable to connect to vector store during initialization: %s", ex)
 
+# Initialize Pinecone client
+pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+
 MAX_COLLECTION_NAMES = 5
 
 # Get a StreamingFilterThinkParser based on configuration
@@ -93,7 +99,7 @@ class APIError(Exception):
 class NvidiaRAG():
 
     async def health(self, check_dependencies: bool = False) -> Dict[str, Any]:
-        """Check the health of the RAG server."""
+        """Check the health of the RAG server using Pinecone SDK."""
         response_message = "Service is up."
         health_results = {}
         health_results["message"] = response_message
@@ -114,7 +120,6 @@ class NvidiaRAG():
         stop: List[str] = None,
         reranker_top_k: int = int(CONFIG.retriever.top_k),
         vdb_top_k: int = int(CONFIG.retriever.vdb_top_k),
-        vdb_endpoint: str = CONFIG.vector_store.url,
         collection_name: str = "",
         collection_names: List[str] = [CONFIG.vector_store.default_collection_name],
         enable_query_rewriting: bool = CONFIG.query_rewriter.enable_query_rewriter,
@@ -144,7 +149,6 @@ class NvidiaRAG():
             stop: List of stop sequences
             reranker_top_k: Number of documents to return after reranking
             vdb_top_k: Number of documents to retrieve from vector DB
-            vdb_endpoint: Vector database endpoint URL
             collection_name: Name of the collection to use
             collection_names: List of collection names to use
             enable_query_rewriting: Whether to enable query rewriting
@@ -205,7 +209,7 @@ class NvidiaRAG():
                 collection_names=collection_names,
                 embedding_model=embedding_model,
                 embedding_endpoint=embedding_endpoint,
-                vdb_endpoint=vdb_endpoint,
+                vdb_endpoint=CONFIG.vector_store.url,
                 enable_reranker=enable_reranker,
                 reranker_model=reranker_model,
                 reranker_endpoint=reranker_endpoint,
@@ -392,7 +396,7 @@ class NvidiaRAG():
                     # Perform parallel retrieval from all vector stores
                     docs = []
                     with ThreadPoolExecutor() as executor:
-                        futures = [executor.submit(retreive_docs_from_retriever, retriever=retriever, retriever_query=retriever_query, expr=filter_expr, otel_ctx=otel_ctx) for retriever in retrievers]
+                        futures = [executor.submit(retrieve_docs_from_retriever, retriever=retriever, retriever_query=retriever_query, expr=filter_expr, otel_ctx=otel_ctx) for retriever in retrievers]
                         for future in futures:
                             docs.extend(future.result())
 
@@ -407,7 +411,7 @@ class NvidiaRAG():
                                              force_citations=True)
 
             # Multiple retrievers are not supported when reranking is disabled
-            docs = retreive_docs_from_retriever(retriever=retrievers[0], retriever_query=retriever_query, expr=filter_expr, otel_ctx=otel_ctx)
+            docs = retrieve_docs_from_retriever(retriever=retrievers[0], retriever_query=retriever_query, expr=filter_expr, otel_ctx=otel_ctx)
             # TODO: Check how to get the relevance score from vector database
             return prepare_citations(retrieved_documents=docs,
                                      force_citations=True)
@@ -517,7 +521,7 @@ class NvidiaRAG():
         collection_names: List[str] = [CONFIG.vector_store.default_collection_name],
         embedding_model: str = "",
         embedding_endpoint: Optional[str] = None,
-        vdb_endpoint: str = "http://localhost:19530",
+        vdb_endpoint: str = "http://localhost:5080",
         enable_reranker: bool = True,
         reranker_model: str = "",
         reranker_endpoint: Optional[str] = None,
@@ -680,7 +684,7 @@ class NvidiaRAG():
                     # Perform parallel retrieval from all vector stores
                     docs = []
                     with ThreadPoolExecutor() as executor:
-                        futures = [executor.submit(retreive_docs_from_retriever, retriever=retriever, retriever_query=query, expr=filter_expr, otel_ctx=otel_ctx) for retriever in retrievers]
+                        futures = [executor.submit(retrieve_docs_from_retriever, retriever=retriever, retriever_query=query, expr=filter_expr, otel_ctx=otel_ctx) for retriever in retrievers]
                         for future in futures:
                             docs.extend(future.result())
 
@@ -692,7 +696,7 @@ class NvidiaRAG():
                     context_to_show = self.__normalize_relevance_scores(context_to_show)
                 else:
                     # Multiple retrievers are not supported when reranking is disabled
-                    docs = retreive_docs_from_retriever(retriever=retrievers[0], retriever_query=query, expr=filter_expr, otel_ctx=otel_ctx)
+                    docs = retrieve_docs_from_retriever(retriever=retrievers[0], retriever_query=query, expr=filter_expr, otel_ctx=otel_ctx)
                     context_to_show = docs
 
             if enable_vlm_inference:
