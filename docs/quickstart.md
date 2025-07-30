@@ -51,12 +51,6 @@ After you generate your key, export your key as an environment variable:
 export PINECONE_API_KEY="<your-pinecone-api-key>"
 ```
 
-You'll also need to set your Pinecone environment (e.g., "gcp-starter", "us-west1-gcp", etc.):
-
-```bash
-export PINECONE_ENVIRONMENT="<your-pinecone-environment>"
-```
-
 ## Interact using native python APIs
 
 You can interact with and deploy the NVIDIA RAG Blueprint directly from Python using the provided Jupyter notebook. This approach is ideal for users who prefer a programmatic interface for setup, ingestion, and querying, or for those who want to automate workflows and integrate with other Python tools.
