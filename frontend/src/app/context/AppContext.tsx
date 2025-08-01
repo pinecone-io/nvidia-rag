@@ -11,12 +11,13 @@ import React, {
   ReactNode,
 } from "react";
 import { Document } from "@/types/documents";
-import { Collection } from "@/types/collections";
 import { ChatMessage } from "@/types/chat";
+import { Namespace } from "@/types/namespaces";
 
+// Update AppState to use namespaces instead of collections
 interface AppState {
-  collections: Collection[];
-  selectedCollections: string[]; // CHANGED
+  namespaces: Namespace[];
+  selectedNamespaces: string[];
   documents: Document[];
   chatMessages: ChatMessage[];
   loading: boolean;
@@ -25,16 +26,17 @@ interface AppState {
 
 export interface IngestionTask {
   id: string;
-  collection_name: string;
+  namespace_name: string;
   state: "PENDING" | "FINISHED" | "FAILED" | "UNKNOWN";
   created_at: string;
   documents?: string[];
   result?: any;
 }
 
+// Update AppContextType to use namespaces instead of collections
 interface AppContextType extends AppState {
-  setCollections: (collections: Collection[]) => void;
-  setSelectedCollections: React.Dispatch<React.SetStateAction<string[]>>;
+  setNamespaces: (namespaces: Namespace[]) => void;
+  setSelectedNamespaces: React.Dispatch<React.SetStateAction<string[]>>;
   setDocuments: (documents: Document[]) => void;
   addChatMessage: (message: ChatMessage) => void;
   clearChatMessages: () => void;
@@ -48,14 +50,15 @@ interface AppContextType extends AppState {
     result?: any
   ) => void;
   removePendingTask: (taskId: string) => void;
-  onDocumentsUpdated: (collectionName: string, callback: () => void) => () => void;
+  onDocumentsUpdated: (namespaceName: string, callback: () => void) => () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+// Update AppProvider to use namespaces instead of collections
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [selectedCollections, setSelectedCollections] = useState<string[]>([]); // CHANGED
+  const [namespaces, setNamespaces] = useState<Namespace[]>([]);
+  const [selectedNamespaces, setSelectedNamespaces] = useState<string[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -63,7 +66,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [pendingTasks, setPendingTasks] = useState<IngestionTask[]>([]);
 
   const documentUpdateCallbacksRef = useRef<{
-    [collectionName: string]: Array<() => void>;
+    [namespaceName: string]: Array<() => void>;
   }>({});
 
   const addChatMessage = (message: ChatMessage) => {
@@ -91,9 +94,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (
         updatedTask &&
         (state === "FINISHED" || state === "FAILED") &&
-        updatedTask.collection_name
+        updatedTask.namespace_name
       ) {
-        const cbs = documentUpdateCallbacksRef.current[updatedTask.collection_name];
+        const cbs = documentUpdateCallbacksRef.current[updatedTask.namespace_name];
         if (cbs) {
           setTimeout(() => {
             cbs.forEach((cb) => {
@@ -114,14 +117,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const removePendingTask = (taskId: string) =>
     setPendingTasks((prev) => prev.filter((task) => task.id !== taskId));
 
-  const onDocumentsUpdated = (collectionName: string, callback: () => void) => {
-    if (!documentUpdateCallbacksRef.current[collectionName]) {
-      documentUpdateCallbacksRef.current[collectionName] = [];
+  const onDocumentsUpdated = (namespaceName: string, callback: () => void) => {
+    if (!documentUpdateCallbacksRef.current[namespaceName]) {
+      documentUpdateCallbacksRef.current[namespaceName] = [];
     }
-    documentUpdateCallbacksRef.current[collectionName].push(callback);
+    documentUpdateCallbacksRef.current[namespaceName].push(callback);
     return () => {
-      documentUpdateCallbacksRef.current[collectionName] = documentUpdateCallbacksRef
-        .current[collectionName]
+      documentUpdateCallbacksRef.current[namespaceName] = documentUpdateCallbacksRef
+        .current[namespaceName]
         .filter((cb) => cb !== callback);
     };
   };
@@ -143,26 +146,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             updateTaskStatus(task.id, data.state, data.result);
 
             if (["FINISHED", "FAILED"].includes(data.state)) {
-              const resp = await fetch("/api/collections");
+              const resp = await fetch("/api/namespaces");
               if (resp.ok) {
-                const { collections: updated } = await resp.json();
-                const formatted = updated.map((c: any) => ({
-                  collection_name: c.collection_name,
-                  document_count: c.num_entities,
-                  index_count: c.num_entities,
-                  metadata_schema: c.metadata_schema ?? [],
+                const { namespaces: updated } = await resp.json();
+                const formatted = updated.map((n: any) => ({
+                  namespace_name: n.namespace_name,
+                  document_count: n.num_entities,
+                  index_count: n.num_entities,
+                  metadata_schema: n.metadata_schema ?? [],
                 }));
 
                 if (data.result.failed_documents?.length > 0) {
                   localStorage.setItem(
-                    `failedDocs:${task.collection_name}`,
+                    `failedDocs:${task.namespace_name}`,
                     JSON.stringify(data.result.failed_documents)
                   );
                 }
 
                 const changed =
-                  JSON.stringify(formatted) !== JSON.stringify(collections);
-                if (changed) setCollections(formatted);
+                  JSON.stringify(formatted) !== JSON.stringify(namespaces);
+                if (changed) setNamespaces(formatted);
               }
             }
           }
@@ -173,23 +176,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }, 5000);
 
     return () => clearInterval(intervalId);
-  }, [pendingTasks, collections]);
+  }, [pendingTasks, namespaces]);
 
   return (
     <AppContext.Provider
       value={{
-        collections,
-        selectedCollections, // CHANGED
+        namespaces,
+        selectedNamespaces,
+        setNamespaces,
+        setSelectedNamespaces,
         documents,
-        chatMessages,
-        loading,
-        error,
-        setCollections,
-        setSelectedCollections, // CHANGED
         setDocuments,
+        chatMessages,
         addChatMessage,
         clearChatMessages,
+        loading,
         setLoading,
+        error,
         setError,
         pendingTasks,
         addPendingTask,

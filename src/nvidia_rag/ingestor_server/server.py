@@ -19,9 +19,9 @@
     PATCH /documents: Update documents in the vector store.
     GET /documents: Get documents in the vector store.
     DELETE /documents: Delete documents from the vector store.
-    GET /collections: Get collections in the vector store.
-    POST /collections: Create collections in the vector store.
-    DELETE /collections: Delete collections in the vector store.
+    GET /namespaces: Get namespaces in the vector store.
+    POST /namespaces: Create namespaces in the vector store.
+    DELETE /namespaces: Delete namespaces in the vector store.
 """
 
 import asyncio
@@ -40,6 +40,13 @@ from pydantic import BaseModel, Field
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 
 from nvidia_rag.utils.common import get_config
+from nvidia_rag.utils.vectorstore import (
+    get_vectorstore, 
+    get_namespaces as get_namespaces_from_vectorstore, 
+    delete_namespaces, 
+    del_docs_vectorstore_langchain, 
+    get_docs_vectorstore_langchain
+)
 from nvidia_rag.ingestor_server.main import NvidiaRAGIngestor
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
@@ -99,17 +106,6 @@ class CustomMetadata(BaseModel):
 
 class DocumentUploadRequest(BaseModel):
     """Request model for uploading and processing documents."""
-
-    vdb_endpoint: str = Field(
-        os.getenv("APP_VECTORSTORE_URL", "http://localhost:19530"),
-        description="URL of the vector database endpoint.",
-        exclude=True # WAR to hide it from openapi schema
-    )
-
-    collection_name: str = Field(
-        "multimodal_data",
-        description="Name of the collection in the vector database."
-    )
 
     blocking: bool = Field(
         False,
@@ -186,42 +182,42 @@ class MetadataField(BaseModel):
     type: Literal["string", "datetime"] = Field("", description="Type of the metadata field from the following: 'string', 'datetime'.")
     description: str = Field("", description="Optional description of the metadata field.")
 
-class UploadedCollection(BaseModel):
+class UploadedNamespace(BaseModel):
     """Model representing an individual uploaded document."""
-    collection_name: str = Field("", description="Name of the collection.")
-    num_entities: int = Field(0, description="Number of rows or entities in the collection.")
-    metadata_schema: List[MetadataField] = Field([], description="Metadata schema of the collection.")
+    namespace_name: str = Field("", description="Name of the namespace.")
+    num_entities: int = Field(0, description="Number of rows or entities in the namespace.")
+    metadata_schema: List[MetadataField] = Field([], description="Metadata schema of the namespace.")
 
-class CollectionListResponse(BaseModel):
+class NamespaceListResponse(BaseModel):
     """Response model for uploading a document."""
     message: str = Field("", description="Message indicating the status of the request.")
-    total_collections: int = Field(0, description="Total number of collections uploaded.")
-    collections: List[UploadedCollection] = Field([], description="List of uploaded collections.")
+    total_namespaces: int = Field(0, description="Total number of namespaces uploaded.")
+    namespaces: List[UploadedNamespace] = Field([], description="List of uploaded namespaces.")
 
-class CreateCollectionRequest(BaseModel):
-    """Request model for creating a collection."""
+class CreateNamespaceRequest(BaseModel):
+    """Request model for creating a namespace."""
     vdb_endpoint: str = Field(os.getenv("APP_VECTORSTORE_URL", ""), description="Endpoint of the vector database.")
-    collection_name: str = Field(os.getenv("COLLECTION_NAME", ""), description="Name of the collection.")
-    embedding_dimension: int = Field(2048, description="Embedding dimension of the collection.")
-    metadata_schema: List[MetadataField] = Field([], description="Metadata schema of the collection.")
+    namespace_name: str = Field(os.getenv("NAMESPACE_NAME", ""), description="Name of the namespace.")
+    embedding_dimension: int = Field(2048, description="Embedding dimension of the namespace.")
+    metadata_schema: List[MetadataField] = Field([], description="Metadata schema of the namespace.")
 
-class FailedCollection(BaseModel):
-    """Model representing a collection that failed to be created or deleted."""
-    collection_name: str = Field("", description="Name of the collection.")
-    error_message: str = Field("", description="Error message from the collection creation or deletion process.")
+class FailedNamespace(BaseModel):
+    """Model representing a namespace that failed to be created or deleted."""
+    namespace_name: str = Field("", description="Name of the namespace.")
+    error_message: str = Field("", description="Error message from the namespace creation or deletion process.")
 
-class CollectionsResponse(BaseModel):
-    """Response model for creation or deletion of collections in vector database."""
+class NamespacesResponse(BaseModel):
+    """Response model for creation or deletion of namespaces in vector database."""
     message: str = Field(..., description="Status message of the process.")
-    successful: List[str] = Field(default_factory=list, description="List of successfully created or deleted collections.")
-    failed: List[FailedCollection] = Field(default_factory=list, description="List of collections that failed to be created or deleted.")
-    total_success: int = Field(0, description="Total number of collections successfully created or deleted.")
-    total_failed: int = Field(0, description="Total number of collections that failed to be created or deleted.")
+    successful: List[str] = Field(default_factory=list, description="List of successfully created or deleted namespaces.")
+    failed: List[FailedNamespace] = Field(default_factory=list, description="List of namespaces that failed to be created or deleted.")
+    total_success: int = Field(0, description="Total number of namespaces successfully created or deleted.")
+    total_failed: int = Field(0, description="Total number of namespaces that failed to be created or deleted.")
 
-class CreateCollectionResponse(BaseModel):
-    """Response model for creation or deletion of a collection in vector database."""
+class CreateNamespaceResponse(BaseModel):
+    """Response model for creation or deletion of a namespace in vector database."""
     message: str = Field(..., description="Status message of the process.")
-    collection_name: str = Field(..., description="Name of the collection.")
+    namespace_name: str = Field(..., description="Name of the namespace.")
 
 
 @app.exception_handler(RequestValidationError)
@@ -322,7 +318,7 @@ async def upload_document(documents: List[UploadFile] = File(...),
 
     try:
         # Store all provided file paths in a temporary directory
-        all_file_paths = process_file_paths(documents, request.collection_name)
+        all_file_paths = process_file_paths(documents, request.namespace_name)
         response_dict = await NV_INGEST_INGESTOR.upload_documents(
             filepaths=all_file_paths,
             delete_files_after_ingestion=True,
@@ -398,7 +394,7 @@ async def update_documents(documents: List[UploadFile] = File(...),
 
     try:
         # Store all provided file paths in a temporary directory
-        all_file_paths = process_file_paths(documents, request.collection_name)
+        all_file_paths = process_file_paths(documents, request.namespace_name)
         response_dict = await NV_INGEST_INGESTOR.update_documents(
             filepaths=all_file_paths,
             delete_files_after_ingestion=True,
@@ -419,6 +415,7 @@ async def update_documents(documents: List[UploadFile] = File(...),
         return JSONResponse(content={"message": f"Ingestion of files failed with error. {e}"}, status_code=500)
 
 
+# Use get_vectorstore to retrieve documents
 @app.get(
     "/documents",
     tags=["Ingestion APIs"],
@@ -446,26 +443,19 @@ async def update_documents(documents: List[UploadFile] = File(...),
         }
     },
 )
-async def get_documents(
-    _: Request,
-    collection_name: str = os.getenv("COLLECTION_NAME", ""),
-    vdb_endpoint: str = Query(default=os.getenv("APP_VECTORSTORE_URL"), include_in_schema=False)
-) -> DocumentListResponse:
-    """Get list of document ingested in vectorstore."""
+async def get_documents(_: Request, namespace_name: str = os.getenv("NAMESPACE_NAME", "")) -> DocumentListResponse:
     try:
-        if hasattr(NV_INGEST_INGESTOR, "get_documents") and callable(NV_INGEST_INGESTOR.get_documents):
-            documents = NV_INGEST_INGESTOR.get_documents(collection_name, vdb_endpoint)
-            return DocumentListResponse(**documents)
-        raise NotImplementedError("Example class has not implemented the get_documents method.")
-
-    except asyncio.CancelledError as e:
-        logger.warning(f"Request cancelled while fetching documents. {str(e)}")
-        return JSONResponse(content={"message": "Request was cancelled by the client."}, status_code=499)
+        vectorstore = get_vectorstore(DOCUMENT_EMBEDDER, namespace_name)
+        if vectorstore is None:
+            return JSONResponse(content={"message": "Namespace not found.", "total_documents": 0, "documents": []}, status_code=404)
+        documents = get_docs_vectorstore_langchain(vectorstore, namespace_name)
+        return DocumentListResponse(message="Documents retrieved successfully.", total_documents=len(documents), documents=documents)
     except Exception as e:
         logger.error("Error from GET /documents endpoint. Error details: %s", e)
         return JSONResponse(content={"message": f"Error occurred while fetching documents: {e}"}, status_code=500)
 
 
+# Use del_docs_vectorstore_langchain to delete documents
 @app.delete(
     "/documents",
     tags=["Ingestion APIs"],
@@ -493,27 +483,26 @@ async def get_documents(
         }
     },
 )
-async def delete_documents(_: Request, document_names: List[str] = [], collection_name: str = os.getenv("COLLECTION_NAME"), vdb_endpoint: str = Query(default=os.getenv("APP_VECTORSTORE_URL"), include_in_schema=False)) -> DocumentListResponse:
-    """Delete a document from vectorstore."""
+async def delete_documents(_: Request, document_names: List[str] = [], namespace_name: str = os.getenv("NAMESPACE_NAME")) -> DocumentListResponse:
     try:
-        if hasattr(NV_INGEST_INGESTOR, "delete_documents") and callable(NV_INGEST_INGESTOR.delete_documents):
-            response = NV_INGEST_INGESTOR.delete_documents(document_names=document_names, collection_name=collection_name, vdb_endpoint=vdb_endpoint, include_upload_path=True)
-            return DocumentListResponse(**response)
-
-        raise NotImplementedError("Example class has not implemented the delete_document method.")
-
-    except asyncio.CancelledError as e:
-        logger.warning(f"Request cancelled while deleting document:, {document_names}, {str(e)}")
-        return JSONResponse(content={"message": "Request was cancelled by the client."}, status_code=499)
+        vectorstore = get_vectorstore(DOCUMENT_EMBEDDER, namespace_name)
+        if vectorstore is None:
+            return JSONResponse(content={"message": "Namespace not found.", "total_documents": 0, "documents": []}, status_code=404)
+        success = del_docs_vectorstore_langchain(vectorstore, document_names, namespace_name)
+        if success:
+            return DocumentListResponse(message="Documents deleted successfully.", total_documents=len(document_names), documents=[])
+        else:
+            return JSONResponse(content={"message": "Failed to delete documents."}, status_code=500)
     except Exception as e:
         logger.error("Error from DELETE /documents endpoint. Error details: %s", e)
         return JSONResponse(content={"message": f"Error deleting document {document_names}: {e}"}, status_code=500)
 
 
+# Use get_namespace to retrieve namespaces
 @app.get(
-    "/collections",
+    "/namespaces",
     tags=["Vector DB APIs"],
-    response_model=CollectionListResponse,
+    response_model=NamespacesResponse,
     responses={
         499: {
             "description": "Client Closed Request",
@@ -537,29 +526,23 @@ async def delete_documents(_: Request, document_names: List[str] = [], collectio
         },
     },
 )
-async def get_collections(vdb_endpoint: str = Query(default=os.getenv("APP_VECTORSTORE_URL"), include_in_schema=False)) -> CollectionListResponse:
+async def get_namespaces() -> NamespacesResponse:
     """
-    Endpoint to get a list of collection names from the vector database server.
-    Returns a list of collection names.
+    Endpoint to get a list of namespace names from the vector database server.
+    Returns a list of namespace names.
     """
     try:
-        if hasattr(NV_INGEST_INGESTOR, "get_collections") and callable(NV_INGEST_INGESTOR.get_collections):
-            response = NV_INGEST_INGESTOR.get_collections(vdb_endpoint)
-            return CollectionListResponse(**response)
-        raise NotImplementedError("Example class has not implemented the get_collections method.")
-
-    except asyncio.CancelledError as e:
-        logger.warning(f"Request cancelled while fetching collections. {str(e)}")
-        return JSONResponse(content={"message": "Request was cancelled by the client."}, status_code=499)
+        namespaces = get_namespaces_from_vectorstore()
+        return NamespacesResponse(message="Namespaces retrieved successfully.", total_namespaces=len(namespaces), namespaces=namespaces)
     except Exception as e:
-        logger.error("Error from GET /collections endpoint. Error details: %s", e)
-        return JSONResponse(content={"message": f"Error occurred while fetching collections. Error: {e}"}, status_code=500)
+        logger.error("Error from GET /namespaces endpoint. Error details: %s", e)
+        return JSONResponse(content={"message": f"Error occurred while fetching namespaces. Error: {e}"}, status_code=500)
 
 
 @app.post(
-    "/collections",
+    "/namespaces",
     tags=["Vector DB APIs"],
-    response_model=CollectionsResponse,
+    response_model=CreateNamespaceResponse,
     responses={
         499: {
             "description": "Client Closed Request",
@@ -582,135 +565,55 @@ async def get_collections(vdb_endpoint: str = Query(default=os.getenv("APP_VECTO
             },
         },
     },
-    deprecated=True,
-    description="This endpoint is deprecated. Use POST /collection instead. Custom metadata is not supported in this endpoint."
 )
-async def create_collections(
+async def create_namespaces(
     vdb_endpoint: str = Query(default=os.getenv("APP_VECTORSTORE_URL"), include_in_schema=False),
-    collection_names: List[str] = [os.getenv("COLLECTION_NAME")],
-    collection_type: str = "text",
+    namespace_names: List[str] = [os.getenv("NAMESPACE_NAME")],
     embedding_dimension: int = 2048
-) -> CollectionsResponse:
+) -> CreateNamespaceResponse:
     """
-    Endpoint to create a collection from the vector database server.
+    Endpoint to create a namespace in the vector database server.
     Returns status message.
     """
     try:
-        if hasattr(NV_INGEST_INGESTOR, "create_collections") and callable(NV_INGEST_INGESTOR.create_collections):
-            response = NV_INGEST_INGESTOR.create_collections(collection_names, vdb_endpoint, embedding_dimension)
-            return CollectionsResponse(**response)
-        raise NotImplementedError("Example class has not implemented the create_collections method.")
+        if hasattr(NV_INGEST_INGESTOR, "create_namespaces") and callable(NV_INGEST_INGESTOR.create_namespaces):
+            response = NV_INGEST_INGESTOR.create_namespaces(namespace_names, vdb_endpoint, embedding_dimension)
+            return CreateNamespaceResponse(**response)
+        raise NotImplementedError("Example class has not implemented the create_namespaces method.")
 
     except asyncio.CancelledError as e:
-        logger.warning(f"Request cancelled while fetching collections. {str(e)}")
+        logger.warning(f"Request cancelled while fetching namespaces. {str(e)}")
         return JSONResponse(content={"message": "Request was cancelled by the client."}, status_code=499)
     except Exception as e:
-        logger.error("Error from POST /collections endpoint. Error details: %s", e)
-        return JSONResponse(content={"message": f"Error occurred while creating collections. Error: {e}"}, status_code=500)
+        logger.error("Error from POST /namespaces endpoint. Error details: %s", e)
+        return JSONResponse(content={"message": f"Error occurred while creating namespaces. Error: {e}"}, status_code=500)
 
-@app.post(
-    "/collection",
-    tags=["Vector DB APIs"],
-    response_model=CreateCollectionResponse,
-    responses={
-        499: {
-            "description": "Client Closed Request",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": "The client cancelled the request"
-                    }
-                }
-            },
-        },
-        500: {
-            "description": "Internal Server Error",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": "Internal server error occurred"
-                    }
-                }
-            },
-        },
-    },
-)
-async def create_collection(
-    data: CreateCollectionRequest
-) -> CreateCollectionResponse:
+
+async def __delete_namespaces(namespace_names: List[str] = [os.getenv("NAMESPACE_NAME")]) -> NamespacesResponse:
     """
-    Endpoint to create a collection from the vector database server.
+    Endpoint to delete a namespace in the vector database server.
     Returns status message.
     """
     try:
-        if hasattr(NV_INGEST_INGESTOR, "create_collection") and callable(NV_INGEST_INGESTOR.create_collection):
-            response = NV_INGEST_INGESTOR.create_collection(
-                collection_name=data.collection_name,
-                vdb_endpoint=data.vdb_endpoint,
-                embedding_dimension=data.embedding_dimension,
-                metadata_schema=[field.model_dump() for field in data.metadata_schema]
-            )
-            return CreateCollectionResponse(**response)
-        raise NotImplementedError("Example class has not implemented the create_collection method.")
-
-    except asyncio.CancelledError as e:
-        logger.warning(f"Request cancelled while fetching collections. {str(e)}")
-        return JSONResponse(content={"message": "Request was cancelled by the client."}, status_code=499)
+        result = delete_namespaces(namespace_names)
+        return NamespacesResponse(message="Namespaces deleted successfully.", successful=result.get("successful", []), failed=result.get("failed", []))
     except Exception as e:
-        logger.error("Error from POST /collections endpoint. Error details: %s", e)
-        return JSONResponse(content={"message": f"Error occurred while creating collections. Error: {e}"}, status_code=500)
+        logger.error("Error from DELETE /namespaces endpoint. Error details: %s", e)
+        return JSONResponse(content={"message": f"Error occurred while deleting namespaces. Error: {e}"}, status_code=500)
 
-@app.delete(
-    "/collections",
-    tags=["Vector DB APIs"],
-    response_model=CollectionsResponse,
-    responses={
-        499: {
-            "description": "Client Closed Request",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": "The client cancelled the request"
-                    }
-                }
-            },
-        },
-        500: {
-            "description": "Internal Server Error",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": "Internal server error occurred"
-                    }
-                }
-            },
-        },
-    },
-)
-async def delete_collections(vdb_endpoint: str = Query(default=os.getenv("APP_VECTORSTORE_URL"), include_in_schema=False), collection_names: List[str] = [os.getenv("COLLECTION_NAME")]) -> CollectionsResponse:
+async def delete_namespaces(namespace_names: List[str] = [os.getenv("NAMESPACE_NAME")]) -> NamespacesResponse:
     """
-    Endpoint to delete a collection from the vector database server.
+    Endpoint to delete a namespace from the vector database server.
     Returns status message.
     """
-    try:
-        if hasattr(NV_INGEST_INGESTOR, "delete_collections") and callable(NV_INGEST_INGESTOR.delete_collections):
-            response = NV_INGEST_INGESTOR.delete_collections(vdb_endpoint, collection_names)
-            return CollectionsResponse(**response)
-        raise NotImplementedError("Example class has not implemented the delete_collections method.")
-
-    except asyncio.CancelledError as e:
-        logger.warning(f"Request cancelled while fetching collections. {str(e)}")
-        return JSONResponse(content={"message": "Request was cancelled by the client."}, status_code=499)
-    except Exception as e:
-        logger.error("Error from DELETE /collections endpoint. Error details: %s", e)
-        return JSONResponse(content={"message": f"Error occurred while deleting collections. Error: {e}"}, status_code=500)
+    return __delete_namespaces(namespace_names)
 
 
-def process_file_paths(filepaths: List[str], collection_name: str):
+def process_file_paths(filepaths: List[str], namespace_name: str):
     """Process the file paths and return the list of file paths."""
 
     base_upload_folder = Path(os.path.join(CONFIG.temp_dir,
-                                           f"uploaded_files/{collection_name}"))
+                                           f"uploaded_files/{namespace_name}"))
     base_upload_folder.mkdir(parents=True, exist_ok=True)
     all_file_paths = []
 

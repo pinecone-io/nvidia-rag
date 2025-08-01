@@ -16,7 +16,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import Collections from "../Collections/Collections";
+import Namespaces from "../Collections/Namespaces";
 import RightSidebar from "../RightSidebar/RightSidebar";
 import MessageInput from "./MessageInput";
 import { v4 as uuidv4 } from "uuid";
@@ -36,7 +36,7 @@ export default function Chat() {
   const { streamState, processStream, startStream, resetStream, stopStream } =
     useChatStream();
 
-  const { selectedCollections } = useApp(); // updated
+  const { selectedNamespaces } = useApp(); // updated
   const {
     temperature,
     topP,
@@ -150,13 +150,13 @@ export default function Chat() {
         role: msg.role,
         content: msg.content,
       })),
-      collection_names: selectedCollections,
+      namespace_names: selectedNamespaces,
       temperature,
       top_p: topP,
       reranker_top_k: rerankerTopK,
       vdb_top_k: vdbTopK,
       confidence_threshold: confidenceScoreThreshold,
-      use_knowledge_base: selectedCollections.length > 0,
+      use_knowledge_base: selectedNamespaces.length > 0,
       enable_citations: includeCitations,
       enable_guardrails: useGuardrails,
     };
@@ -205,7 +205,7 @@ export default function Chat() {
 
   return (
     <div className="flex h-[calc(100vh-56px)] bg-[#121212]">
-      <Collections />
+      <Namespaces />
       <div
         className={`flex flex-1 transition-all duration-300 ${
           !!activePanel ? "mr-[400px]" : ""

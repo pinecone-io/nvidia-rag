@@ -261,7 +261,7 @@ async def generate_answer(
     generator: 'Generator[str]',
     contexts: List[Any],
     model: str = "",
-    collection_name: str = "",
+    namespace: str = "",
     enable_citations: bool = True
 ):
     """
@@ -270,7 +270,7 @@ async def generate_answer(
         - generator: Generator object that yields response chunks
         - contexts: List of context documents
         - model: Model name for the response
-        - collection_name: Name of the collection
+        - namespace: Name of the namespace
         - enable_citations: Whether to enable citations
     Yields:
         - response_chunk: Stream of response chunks
@@ -327,7 +327,7 @@ def prepare_citations(
     """
     Prepare citation information based on retrieved_documents
     Arguments:
-        - collection_name: str - Vector Database Collection Name
+        - namespace: str - Vector Database Namespace Name
         - retrieved_documents: List of retrieved langchain documents
         - force_citations: This flag would give citations even if config enable_citations is unset
     Returns:
@@ -370,7 +370,7 @@ def prepare_citations(
                     if enable_citations:
                         logger.debug("Pulling content from minio for image/table/chart for citations ...")
                         unique_thumbnail_id = get_unique_thumbnail_id(
-                            collection_name=doc.metadata.get("collection_name"),
+                            namespace=doc.metadata.get("namespace"),
                             file_name=file_name,
                             page_number=page_number,
                             location=location
@@ -452,7 +452,7 @@ def error_response_generator(exception_msg: str):
 
 
 async def retrieve_summary(
-        collection_name: str,
+        namespace: str,
         file_name: str,
         wait: bool = False,
         timeout: int = 300
@@ -461,7 +461,7 @@ async def retrieve_summary(
 
         try:
             unique_thumbnail_id = get_unique_thumbnail_id(
-                collection_name=f"summary_{collection_name}",
+                namespace=f"summary_{namespace}",
                 file_name=file_name,
                 page_number=0,
                 location=[]
@@ -475,14 +475,14 @@ async def retrieve_summary(
                     "message": "Summary retrieved successfully.",
                     "summary": payload.get("summary", ""),
                     "file_name": payload.get("file_name", ""),
-                    "collection_name": collection_name,
+                    "namespace": namespace,
                     "status": "SUCCESS"
                 }
 
             # If summary not found and wait=False, return immediately
             if not wait:
                 return {
-                    "message": f"Summary for {file_name} not found. Ensure the file name and collection name are correct. Set wait=true to wait for generation.",
+                    "message": f"Summary for {file_name} not found. Ensure the file name and namespace are correct. Set wait=true to wait for generation.",
                     "status": "FAILED"
                 }
 
@@ -495,13 +495,13 @@ async def retrieve_summary(
                         "message": "Summary retrieved successfully.",
                         "summary": payload.get("summary", ""),
                         "file_name": payload.get("file_name", ""),
-                        "collection_name": collection_name,
+                        "namespace": namespace,
                         "status": "SUCCESS"
                     }
                 await asyncio.sleep(5)  # Wait 5 seconds before checking again
 
             return {
-                "message": f"Summary for {file_name} not found after {timeout} seconds. Ensure the file name and collection name are correct.",
+                "message": f"Summary for {file_name} not found after {timeout} seconds. Ensure the file name and namespace are correct.",
                 "status": "FAILED"
             }
 

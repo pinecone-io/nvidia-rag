@@ -97,7 +97,7 @@ export async function PATCH(request: NextRequest) {
     const body: DocumentRequest = await request.json();
 
     try {
-      validateRequiredFields(body, ["collection_name", "documents"]);
+      validateRequiredFields(body, ["namespace_name", "documents"]);
       if (body.documents.length === 0) {
         throw new APIError("Documents array cannot be empty", 400);
       }
@@ -133,15 +133,15 @@ export async function PATCH(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const collection_name = searchParams.get("collection_name");
+    const namespace_name = searchParams.get("namespace_name");
 
-    if (!collection_name) {
-      throw new APIError("collection_name is required", 400);
+    if (!namespace_name) {
+      throw new APIError("namespace_name is required", 400);
     }
 
     const url = buildQueryUrl(
       `${API_CONFIG.VDB.BASE_URL}${API_CONFIG.VDB.ENDPOINTS.DOCUMENTS.LIST}`,
-      { collection_name }
+      { namespace_name }
     );
 
     const response = await fetch(url);
@@ -163,10 +163,10 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const collection_name = searchParams.get("collection_name");
+    const namespace_name = searchParams.get("namespace_name");
 
-    if (!collection_name) {
-      throw new APIError("collection_name is required", 400);
+    if (!namespace_name) {
+      throw new APIError("namespace_name is required", 400);
     }
 
     const body = await request.json();
@@ -174,7 +174,7 @@ export async function DELETE(request: NextRequest) {
 
     const url = buildQueryUrl(
       `${API_CONFIG.VDB.BASE_URL}${API_CONFIG.VDB.ENDPOINTS.DOCUMENTS.DELETE}`,
-      { collection_name }
+      { namespace_name }
     );
 
     const response = await fetch(url, {

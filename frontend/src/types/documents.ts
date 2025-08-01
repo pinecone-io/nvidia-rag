@@ -17,7 +17,7 @@ import {
   DocumentMetadata,
   VDBConfig,
 } from "@/types/common";
-import { UIMetadataField } from "./collections";
+import { UIMetadataField } from "./namespaces";
 
 export interface Document {
   document_id?: string;

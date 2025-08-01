@@ -16,10 +16,9 @@
 """The wrapper for interacting with Pinecone vectorstore and associated functions.
 1. create_vectorstore_langchain: Create the vector db index for langchain.
 2. get_vectorstore: Get the vectorstore object.
-3. create_collections: Create multiple collections in the Pinecone vector database.
-4. get_collection: Get the list of all collection in vectorstore along with the number of rows in each collection.
-5. delete_collections: Delete a list of collections from the Pinecone vector database.
-6. get_docs_vectorstore_langchain: Retrieve filenames stored in the vector store implemented in LangChain.
+3. get_namespace: Get the list of all namespace in vectorstore along with the number of rows in each namespace.
+4. delete_namespaces: Delete a list of namespaces from the Pinecone vector database.
+5. get_docs_vectorstore_langchain: Retrieve filenames stored in the vector store implemented in LangChain.
 """
 
 import os
@@ -45,37 +44,34 @@ if CONFIG.vector_store.name.lower() == "pinecone" or CONFIG.vector_store.name.lo
 else:
     raise ValueError(f"{CONFIG.vector_store.name} vector database is not supported. Only 'pinecone' and 'pinecone-local' are supported.")
 
-def create_vectorstore_langchain(document_embedder, collection_name: str = "", vdb_endpoint: str = "") -> VectorStore:
+def create_vectorstore_langchain(document_embedder, index_name: str=os.getenv("INDEX_NAME", "nvidia-rag-blueprint")) -> VectorStore:
     """Create the vector db index for langchain."""
 
     config = get_config()
-
-    if vdb_endpoint == "":
-        vdb_endpoint = config.vector_store.url
 
     if config.vector_store.name.lower() == "pinecone" or config.vector_store.name.lower() == "pinecone-local":
         if config.vector_store.name.lower() == "pinecone":
             pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
         else:
-            pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
+            pinecone_client = Pinecone(api_key="pclocal", host=os.getenv("PINECONE_LOCAL_HOST", "http://localhost:5080"))
         
         spec = ServerlessSpec(
-            region="us-east-1",
-            cloud="aws"
+            region=os.getenv("PINECONE_REGION", "us-east-1"),
+            cloud=os.getenv("PINECONE_CLOUD", "aws")
         )
-        logger.debug("Trying to connect to Pinecone index: %s", collection_name)
+        logger.debug("Trying to connect to Pinecone index: %s", index_name)
         # Check if the index exists
-        if not pinecone_client.has_index(collection_name):
-            logger.error(f"Index '{collection_name}' does not exist in Pinecone. Creating it...")
+        if not pinecone_client.has_index(index_name):
+            logger.error(f"Index '{index_name}' does not exist in Pinecone. Creating it...")
             pinecone_client.create_index(
-                name=collection_name,
+                name=index_name,
                 dimension=document_embedder.dimension,
                 metric=config.vector_store.metric or "cosine",
                 spec=spec
             )
-        logger.debug(f"Index '{collection_name}' exists. Proceeding with vector store creation.")
+        logger.debug(f"Index '{index_name}' exists. Proceeding with vector store creation.")
         vectorstore = PineconeVectorStore(
-            index_name=collection_name,
+            index_name=index_name,
             embedding=document_embedder
         )
     else:
@@ -86,109 +82,46 @@ def create_vectorstore_langchain(document_embedder, collection_name: str = "", v
 
 def get_vectorstore(
         document_embedder: "Embeddings",
-        collection_name: str = "",
-        vdb_endpoint: str = "") -> VectorStore:
+        index_name: str) -> VectorStore:
     """
     Send a vectorstore object.
     If a Vectorstore object already exists, the function returns that object.
     Otherwise, it creates a new Vectorstore object and returns it.
     """
-    return create_vectorstore_langchain(document_embedder, collection_name, vdb_endpoint)
+    return create_vectorstore_langchain(document_embedder, index_name)
 
 
-def create_collection(collection_name: str, vdb_endpoint: str, dimension: int = None, collection_type: str = "text") -> None:
-    """
-    Create a new collection in the Pinecone vector database.
-    """
-    config = get_config()
-    if config.vector_store.name.lower() == "pinecone" or config.vector_store.name.lower() == "pinecone-local":
-        if config.vector_store.name.lower() == "pinecone":
-            pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
-        else:
-            pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
-        # Pinecone does not allow underscores in collection names
-        collection_name = collection_name.replace('_', '-')
-        try:
-            spec = ServerlessSpec(
-                region="us-east-1",
-                cloud="aws"
-            )
-            pinecone_client.create_index(
-                name=collection_name,
-                dimension=dimension or 1536,
-                metric=config.vector_store.metric or "cosine",
-                spec=spec
-            )
-            logger.info(f"Collection '{collection_name}' created successfully in Pinecone.")
-        except Exception as e:
-            logger.error(f"Failed to create collection {collection_name}: {str(e)}")
-            raise Exception(f"Failed to create collection {collection_name}: {str(e)}")
-        else:
-            raise ValueError(f"{config.vector_store.name} vector database is not supported")
-
-
-def create_collections(collection_names: List[str], vdb_endpoint: str, dimension: int = 2048, collection_type: str = "text") -> Dict[str, any]:
-    """
-    Create multiple collections in the Pinecone vector database.
-    """
-    config = get_config()
-    results = {}
-
-    for collection_name in collection_names:
-        try:
-            create_collection(collection_name, vdb_endpoint, dimension, collection_type)
-            results[collection_name] = {"status": "success"}
-        except Exception as e:
-            results[collection_name] = {"status": "failed", "error": str(e)}
-            logger.error(f"Failed to create collection {collection_name}: {str(e)}")
-
-    return results
-
-
-def get_collection(vdb_endpoint: str = "") -> Dict[str, Any]:
-    """Get list of all collections in vectorstore along with the number of rows in each collection."""
+def get_namespace(index_name: str = "") -> Dict[str, Any]:
+    """Get list of all namespaces in vectorstore along with the number of rows in each namespace."""
     config = get_config()
 
     if config.vector_store.name.lower() == "pinecone" or config.vector_store.name.lower() == "pinecone-local":
         if config.vector_store.name.lower() == "pinecone":
             pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
         else:
-            pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
+            pinecone_client = Pinecone(api_key="pclocal", host=os.getenv("PINECONE_LOCAL_HOST", "http://localhost:5080"))
         
-        try:
-            # Get list of indexes
-            indexes = pinecone_client.list_indexes()
+        index_name = index_name or os.getenv("PINECONE_INDEX_NAME", "nvidia-rag-blueprint")
+        index = pinecone_client.Index(index_name)
 
+        try:
             # Get stats for each index
-            collection_info = []
-            for index_name in indexes:
-                try:
-                    stats = pinecone_client.describe_index_stats(index_name)
-                    collection_info.append({
-                        "collection_name": index_name,
-                        "row_count": stats.get("total_vector_count", 0)
-                    })
-                except Exception as e:
-                    logger.warning(f"Could not get stats for index {index_name}: {str(e)}")
-                    collection_info.append({
-                        "collection_name": index_name,
-                        "row_count": 0
-                    })
-            
+            stats = index.describe_index_stats()
             return {
-                "collections": collection_info,
-                "total_collections": len(collection_info)
+                "namespaces": [{"namespace_name": name, "vector_count": details["vector_count"]} 
+                               for name, details in stats.get("namespaces", {}).items()],
+                "total_namespaces":  len(stats.get("namespaces", {}))
             }
         except Exception as e:
-            logger.error(f"Failed to get collections from Pinecone: {str(e)}")
-            raise Exception(f"Failed to get collections from Pinecone: {str(e)}")
+            logger.error(f"Failed to get namespaces from Pinecone: {str(e)}")
+            raise Exception(f"Failed to get namespaces from Pinecone: {str(e)}")
     else:
         raise ValueError(f"{config.vector_store.name} vector database is not supported")
 
 
-def delete_collections(vdb_endpoint: str, collection_names: List[str]) -> dict:
+def delete_namespaces(index_name: str, namespace_names: List[str]) -> dict:
     """
-    Delete a list of collections from the Pinecone vector database.
+    Delete a list of namespaces from the Pinecone vector database.
     """
     config = get_config()
     results = {}
@@ -197,16 +130,24 @@ def delete_collections(vdb_endpoint: str, collection_names: List[str]) -> dict:
         if config.vector_store.name.lower() == "pinecone":
             pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
         else:
-            pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
+            pinecone_client = Pinecone(api_key="pclocal", host=os.getenv("PINECONE_LOCAL_HOST", "http://localhost:5080"))
         
-        for collection_name in collection_names:
+        index_name = index_name or os.getenv("PINECONE_INDEX_NAME", "nvidia-rag-blueprint")
+        # Check if the index exists
+        if not pinecone_client.has_index(index_name):
+            logger.error(f"Index '{index_name}' does not exist in Pinecone. Skipping deletion.")
+            return results
+        index = pinecone_client.Index(index_name)
+        
+        # Delete the namespaces in the index
+        for namespace_name in namespace_names:
             try:
-                pinecone_client.delete_index(collection_name)
-                results[collection_name] = {"status": "success"}
-                logger.info(f"Collection '{collection_name}' deleted successfully from Pinecone.")
+                index.delete_namespace(namespace=namespace_name)
+                results[namespace_name] = {"status": "success"}
+                logger.info(f"Namespace '{namespace_name}' deleted successfully from Pinecone index '{index_name}'.")
             except Exception as e:
-                results[collection_name] = {"status": "failed", "error": str(e)}
-                logger.error(f"Failed to delete collection {collection_name}: {str(e)}")
+                results[namespace_name] = {"status": "failed", "error": str(e)}
+                logger.error(f"Failed to delete namespace {namespace_name}: {str(e)}")
     else:
         raise ValueError(f"{config.vector_store.name} vector database is not supported")
     
@@ -215,8 +156,7 @@ def delete_collections(vdb_endpoint: str, collection_names: List[str]) -> dict:
 
 def get_docs_vectorstore_langchain(
         vectorstore: VectorStore,
-        collection_name: str,
-        vdb_endpoint: str,
+        namespace_name: str,
         namespace: str = ""
     ) -> List[Dict[str, Any]]:
     """Retrieves filenames (vector IDs) stored in the vector store implemented in LangChain."""
@@ -229,12 +169,12 @@ def get_docs_vectorstore_langchain(
             if settings.vector_store.name.lower() == "pinecone":
                 pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
             else:
-                pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
+                pinecone_client = Pinecone(api_key="pclocal", host=os.getenv("PINECONE_LOCAL_HOST", "http://localhost:5080"))
             
             try:
                 # Use Pinecone's list_paginated to get vector IDs
                 list_response = pinecone_client.list_paginated(
-                    index_name=collection_name,
+                    index_name=namespace_name,
                     namespace=namespace,
                     limit=100
                 )
@@ -243,7 +183,7 @@ def get_docs_vectorstore_langchain(
                 for vector_id in list_response.vectors:
                     documents.append({
                         "document_name": vector_id,
-                        "collection_name": collection_name
+                        "namespace_name": namespace_name
                     })
                 
                 return documents
@@ -257,7 +197,7 @@ def get_docs_vectorstore_langchain(
     return []
 
 
-def del_docs_vectorstore_langchain(vectorstore: VectorStore, filenames: List[str], collection_name: str="", include_upload_path: bool = False) -> bool:
+def del_docs_vectorstore_langchain(vectorstore: VectorStore, filenames: List[str], index_name: str) -> bool:
     """Delete documents from the vector store implemented in LangChain."""
     settings = get_config()
     try:
@@ -265,15 +205,14 @@ def del_docs_vectorstore_langchain(vectorstore: VectorStore, filenames: List[str
             if settings.vector_store.name.lower() == "pinecone":
                 pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
             else:
-                pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
+                pinecone_client = Pinecone(api_key="pclocal", host=os.getenv("PINECONE_LOCAL_HOST", "http://localhost:5080"))
             
+            index_name = index_name or os.getenv("PINECONE_INDEX_NAME", "nvidia-rag-blueprint")
+            index = pinecone_client.Index(index_name)
             try:
                 # Delete vectors by ID
-                pinecone_client.delete(
-                    index_name=collection_name,
-                    ids=filenames
-                )
-                logger.info(f"Successfully deleted {len(filenames)} documents from Pinecone")
+                index.delete(ids=filenames)
+                logger.info(f"Successfully deleted {len(filenames)} documents from Pinecone index '{index_name}'")
                 return True
             except Exception as e:
                 logger.error(f"Failed to delete documents from Pinecone: {str(e)}")
@@ -305,25 +244,25 @@ def retrieve_docs_from_retriever(retriever, retriever_query: str, expr: str, ote
     retriever_chain = {"context": retriever_lambda} | RunnableAssign({"context": lambda input: input["context"]})
     retriever_docs = retriever_chain.invoke(retriever_query, config={'run_name':'retriever'})
     docs = retriever_docs.get("context", [])
-    collection_name = retriever.vectorstore.index_name if hasattr(retriever.vectorstore, 'index_name') else "unknown"
+    namespace_name = retriever.vectorstore.index_name if hasattr(retriever.vectorstore, 'index_name') else "unknown"
     end_time = time.time()
     latency = end_time - start_time
     logger.info(f"Retriever latency: {latency:.4f} seconds")
     otel_context.detach(token)
-    return add_collection_name_to_retreived_docs(docs, collection_name)
+    return add_namespace_name_to_retreived_docs(docs, namespace_name)
 
 
-def add_collection_name_to_retreived_docs(docs: List[Document], collection_name: str) -> List[Document]:
-    """Add the collection name to the retrieved documents.
-    This is done to ensure the collection name is available in the metadata of the documents for preparing citations.
+def add_namespace_name_to_retreived_docs(docs: List[Document], namespace_name: str) -> List[Document]:
+    """Add the namespace name to the retrieved documents.
+    This is done to ensure the namespace name is available in the metadata of the documents for preparing citations.
 
     Args:
-        docs (List[Document]): The list of documents to add the collection name to.
-        collection_name (str): The name of the collection to add to the documents.
+        docs (List[Document]): The list of documents to add the namespace name to.
+        namespace_name (str): The name of the namespace to add to the documents.
 
     Returns:
-        docs (List[Document]): The list of documents with the collection name added to the metadata.
+        docs (List[Document]): The list of documents with the namespace name added to the metadata.
     """
     for doc in docs:
-        doc.metadata["collection_name"] = collection_name
+        doc.metadata["namespace_name"] = namespace_name
     return docs

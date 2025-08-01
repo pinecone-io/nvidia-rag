@@ -18,7 +18,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { ReactNode } from "react";
-import { UIMetadataField } from "@/types/collections";
+import { UIMetadataField } from "@/types/namespaces";
 
 interface ModalProps {
   isOpen: boolean;

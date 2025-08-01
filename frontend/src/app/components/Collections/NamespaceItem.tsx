@@ -19,9 +19,9 @@ import React, { useState, useEffect, useRef } from "react";
 import AddSourceModal from "./AddSourceModal";
 import { useApp } from "@/app/context/AppContext";
 import Image from "next/image";
-import { APIMetadataField, DocumentMetadata } from "@/types/collections";
+import { APIMetadataField, DocumentMetadata } from "@/types/namespaces";
 
-interface CollectionItemProps {
+interface NamespaceItemProps {
   name: string;
   metadataSchema?: APIMetadataField[];
   isSelected: boolean;
@@ -32,7 +32,7 @@ interface CollectionItemProps {
   onShowTaskStatus?: () => void;
 }
 
-function CollectionItem({
+function NamespaceItem({
   name,
   metadataSchema,
   isSelected,
@@ -41,7 +41,7 @@ function CollectionItem({
   handleViewFiles,
   onDocumentsUpdate,
   onShowTaskStatus,
-}: CollectionItemProps) {
+}: NamespaceItemProps) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isAddSourceModalOpen, setIsAddSourceModalOpen] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 });
@@ -71,7 +71,7 @@ function CollectionItem({
   }, [name]);
 
   const hasPendingTasks = pendingTasks.some(
-    task => task.collection_name === name && task.state === "PENDING"
+    task => task.namespace_name === name && task.state === "PENDING"
   );
 
   useEffect(() => {
@@ -266,13 +266,13 @@ function CollectionItem({
         </div>
       )}
 
-      <AddSourceModal isOpen={isAddSourceModalOpen} onClose={() => setIsAddSourceModalOpen(false)} collectionName={name} onDocumentsUpdate={onDocumentsUpdate} />
+      <AddSourceModal isOpen={isAddSourceModalOpen} onClose={() => setIsAddSourceModalOpen(false)} namespaceName={name} onDocumentsUpdate={onDocumentsUpdate} />
     </div>
   );
 }
 
-function arePropsEqual(prevProps: CollectionItemProps, nextProps: CollectionItemProps) {
+function arePropsEqual(prevProps: NamespaceItemProps, nextProps: NamespaceItemProps) {
   return prevProps.name === nextProps.name && prevProps.isSelected === nextProps.isSelected;
 }
 
-export default React.memo(CollectionItem, arePropsEqual);
+export default React.memo(NamespaceItem, arePropsEqual);

@@ -141,28 +141,30 @@ async def check_pinecone_health() -> Dict[str, Any]:
         "error": None
     }
 
+    start_time = time.time()
+    config = get_config()
+
+    if config.vector_store.name == "pinecone":
+        from pinecone import Pinecone
+        pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
+    elif config.vector_store.name == "pinecone-local":
+        from pinecone import Pinecone
+        pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
+    else:
+        status["status"] = "unhealthy"
+        status["error"] = f"Unsupported vector store: {config.vector_store.name}"
+        return status
+
+    # Test basic operation - list indexes
     try:
-        start_time = time.time()
-        config = get_config()
-
-        if config.vector_store.name == "pinecone":
-            from pinecone import Pinecone
-            pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
-        elif config.vector_store.name == "pinecone-local":
-            from pinecone import Pinecone
-            pinecone_client = Pinecone(api_key="pclocal", host="http://localhost:5080")
-        else:
-            raise ValueError(f"Unsupported vector store: {config.vector_store.name}")
-
-        # Test basic operation - list indexes
         indexes = pinecone_client.list_indexes()
-
+    except Exception as e:
+        status["status"] = "unhealthy"
+        status["error"] = str(e)
+    else:
         status["status"] = "healthy"
         status["latency_ms"] = round((time.time() - start_time) * 1000, 2)
         status["indexes"] = len(indexes)
-    except Exception as e:
-        status["status"] = "error"
-        status["error"] = str(e)
 
     return status
 

@@ -49,8 +49,7 @@ export interface GenerateRequest {
   reranker_top_k?: number;
   vdb_top_k?: number;
   confidence_threshold?: number;
-  vdb_endpoint?: string;
-  collection_names: string[];
+  namespace_names: string[];
   enable_query_rewriting?: boolean;
   enable_reranker?: boolean;
   enable_citations?: boolean;

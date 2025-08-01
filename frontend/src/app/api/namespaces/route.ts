@@ -19,35 +19,35 @@ import {
 } from "../utils/api-utils";
 import { API_CONFIG, buildQueryUrl } from "@/app/config/api";
 
-// GET /collections
+// GET /namespaces
 export async function GET(request: NextRequest) {
   try {
     const url = buildQueryUrl(
-      `${API_CONFIG.VDB.BASE_URL}${API_CONFIG.VDB.ENDPOINTS.COLLECTIONS.LIST}`,
+      `${API_CONFIG.VDB.BASE_URL}${API_CONFIG.VDB.ENDPOINTS.NAMESPACES.LIST}`,
       {}
     );
 
     const response = await fetch(url);
     
     if (!response.ok) {
-      throw new Error(`Failed to fetch collections: ${response.statusText}`);
+      throw new Error(`Failed to fetch namespaces: ${response.statusText}`);
     }
 
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error("Error fetching collections:", error);
+    console.error("Error fetching namespaces:", error);
     return createErrorResponse(error);
   }
 }
 
-// DELETE /collections
+// DELETE /namespaces
 export async function DELETE(request: NextRequest) {
   try {
-    const { collection_names } = await request.json();
+    const { namespace_names } = await request.json();
 
     const url = buildQueryUrl(
-      `${API_CONFIG.VDB.BASE_URL}${API_CONFIG.VDB.ENDPOINTS.COLLECTIONS.DELETE}`,
+      `${API_CONFIG.VDB.BASE_URL}${API_CONFIG.VDB.ENDPOINTS.NAMESPACES.DELETE}`,
       {}
     );
 
@@ -57,18 +57,18 @@ export async function DELETE(request: NextRequest) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(
-        Array.isArray(collection_names) ? collection_names : [collection_names]
+        Array.isArray(namespace_names) ? namespace_names : [namespace_names]
       ),
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to delete collection: ${response.statusText}`);
+      throw new Error(`Failed to delete namespace: ${response.statusText}`);
     }
 
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error("Error deleting collections:", error);
+    console.error("Error deleting namespaces:", error);
     return createErrorResponse(error);
   }
 }

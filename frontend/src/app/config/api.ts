@@ -25,14 +25,13 @@ export const API_CONFIG = {
         UPLOAD: "/documents",
         DELETE: "/documents",
       },
-      COLLECTIONS: {
-        LIST: "/collections",
-        CREATE: "/collection",
-        DELETE: "/collections",
+      NAMESPACES: {
+        LIST: "/namespaces",
+        CREATE: "/namespace",
+        DELETE: "/namespaces",
       },
       TASK_STATUS: "/status",
     },
-    VDB_ENDPOINT: process.env.NEXT_PUBLIC_VDB_ENDPOINT ?? "http://milvus:19530",
   },
   CHAT: {
     BASE_URL:
@@ -55,8 +54,6 @@ export const buildQueryUrl = (
   params: Record<string, string | number>
 ) => {
   const queryParams = new URLSearchParams();
-
-  queryParams.append("vdb_endpoint", API_CONFIG.VDB.VDB_ENDPOINT);
 
   // Add other params
   Object.entries(params).forEach(([key, value]) => {

@@ -24,12 +24,15 @@ from typing import List
 
 from nvidia_rag.utils.common import get_config, get_env_variable, prepare_custom_metadata_dataframe
 from nv_ingest_client.client import NvIngestClient, Ingestor
-import pinecone
+
+# Import necessary functions from vectorstore
+from nvidia_rag.utils.vectorstore import create_vectorstore_langchain, get_vectorstore
+
+# Import get_embedding_model from the embedding module
+from nvidia_rag.utils.embedding import get_embedding_model
 
 
 logger = logging.getLogger(__name__)
-
-ENABLE_NV_INGEST_VDB_UPLOAD = True # When enabled entire ingestion would be performed using nv-ingest
 
 def get_nv_ingest_client():
     """
@@ -44,14 +47,11 @@ def get_nv_ingest_client():
     )
     return client
 
-# Initialize Pinecone client
-pinecone.init(api_key=os.getenv("PINECONE_API_KEY"), environment="us-west1-gcp")
-
 async def get_nv_ingest_ingestor(
         nv_ingest_client_instance,
         filepaths: List[str],
         csv_file_path: str = None,
-        collection_name: str = "multimodal_data",
+        namespace_name: str = "multimodal_data",
         split_options = None,
         custom_metadata = None
     ):
@@ -62,7 +62,7 @@ async def get_nv_ingest_ingestor(
         nv_ingest_client_instance: NvIngestClient instance
         filepaths: List of file paths to ingest
         csv_file_path: Path to the custom metadata CSV file
-        collection_name: Name of the collection in the vector database
+        namespace_name: Name of the namespace in the vector database
         split_options: Options for splitting documents
         custom_metadata: Custom metadata to be added to documents
 
@@ -76,7 +76,7 @@ async def get_nv_ingest_ingestor(
         meta_source_field, meta_fields = prepare_custom_metadata_dataframe(
             all_file_paths=filepaths,
             csv_file_path=csv_file_path,
-            custom_metadata=custom_metadata or []
+            custom_metadata=custom_metadata or {}
         )
 
     logger.debug("Preparing NV Ingest Ingestor instance for filepaths: %s", filepaths)
@@ -99,7 +99,6 @@ async def get_nv_ingest_ingestor(
         "extract_method": config.nv_ingest.pdf_extract_method,
         "text_depth": config.nv_ingest.text_depth,
         "paddle_output_format": paddle_output_format,
-        # "extract_audio_params": {"segment_audio": True} # TODO: Uncomment this when audio segmentation to be enabled
     }
     if config.nv_ingest.pdf_extract_method in ["None", "none"]:
         extract_kwargs.pop("extract_method")
@@ -129,18 +128,27 @@ async def get_nv_ingest_ingestor(
                     )
 
     # Add Embedding task
-    if ENABLE_NV_INGEST_VDB_UPLOAD:
-        ingestor = ingestor.embed()
+    ingestor = ingestor.embed()
+    
+    # Use create_vectorstore_langchain to ensure the index is created
+    vectorstore = create_vectorstore_langchain(ingestor, namespace_name)
 
-    # Add Vector-DB upload task using Pinecone SDK
-    if ENABLE_NV_INGEST_VDB_UPLOAD:
-        index = pinecone.Index(collection_name)
-        for file_path in filepaths:
-            with open(file_path, "rb") as f:
-                file_data = f.read()
-                # Assuming embedding and metadata are prepared
-                embedding = ... # Obtain embedding for the document
-                metadata = ... # Prepare metadata for the document
-                index.upsert([(file_path, embedding, metadata)])
+    # Use get_vectorstore to obtain the vector store instance for uploading documents
+    vectorstore_instance = get_vectorstore(ingestor, namespace_name)
 
+    # Obtain the embedding model
+    embedding_model = get_embedding_model(model=os.getenv("EMBEDDING_MODEL_NAME"), url=os.getenv("EMBEDDING_MODEL_URL"))
+
+    # Use the embedding model to generate embeddings for each document
+    for file_path in filepaths:
+        with open(file_path, "rb") as f:
+            file_data = f.read()
+            # Generate embedding for the document
+            embedding = embedding_model.embed(file_data)
+            # Prepare metadata for the document
+            metadata = custom_metadata.get(file_path, {}) if custom_metadata else {}
+            # Upsert document into the vector database
+            vectorstore_instance.upsert([(file_path, embedding, metadata)])
+
+    # Return the ingestor instance
     return ingestor

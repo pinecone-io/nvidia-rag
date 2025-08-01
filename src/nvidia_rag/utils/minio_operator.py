@@ -147,32 +147,32 @@ def get_minio_operator():
     )
     return minio_operator
 
-def get_unique_thumbnail_id_collection_prefix(
-        collection_name: str,
+def get_unique_thumbnail_id_namespace_prefix(
+        namespace_name: str,
     ) -> str:
     """
-    Prepares unique thumbnail id prefix based on input collection name
+    Prepares unique thumbnail id prefix based on input namespace name
     Returns:
         - unique_thumbnail_id_prefix: str
     """
-    prefix = f"{collection_name}_::"
+    prefix = f"{namespace_name}_::"
     return prefix
 
 def get_unique_thumbnail_id_file_name_prefix(
-        collection_name: str,
+        namespace_name: str,
         file_name: str,
     ) -> str:
     """
-    Prepares unique thumbnail id prefix based on input collection name and file name
+    Prepares unique thumbnail id prefix based on input namespace name and file name
     Returns:
         - unique_thumbnail_id_prefix: str
     """
-    collection_prefix = get_unique_thumbnail_id_collection_prefix(collection_name)
-    prefix = f"{collection_prefix}_{file_name}_::"
+    namespace_prefix = get_unique_thumbnail_id_namespace_prefix(namespace_name)
+    prefix = f"{namespace_prefix}_{file_name}_::"
     return prefix
 
 def get_unique_thumbnail_id(
-        collection_name: str,
+        namespace_name: str,
         file_name: str,
         page_number: int,
         location: List[float] # Bbox information
@@ -184,7 +184,7 @@ def get_unique_thumbnail_id(
     """
     # Round bbox values to reduce precision
     rounded_bbox = [round(coord, 4) for coord in location]
-    prefix = get_unique_thumbnail_id_file_name_prefix(collection_name, file_name)
+    prefix = get_unique_thumbnail_id_file_name_prefix(namespace_name, file_name)
     # Create a string representation
     unique_thumbnail_id = f"{prefix}_{page_number}_" + \
                           "_".join(map(str, rounded_bbox))

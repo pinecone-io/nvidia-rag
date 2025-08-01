@@ -1,6 +1,6 @@
 "use client";
 
-import { UIMetadataField } from "@/types/collections";
+import { UIMetadataField } from "@/types/namespaces";
 import { useState } from "react";
 
 type FieldType = "string" | "datetime";
@@ -99,7 +99,7 @@ export default function MetadataSchemaEditor({
       {showSchemaEditor && (
         <div className="border-t border-neutral-800 p-4">
           <p className="text-sm text-neutral-300 mb-3">
-            Define metadata fields for this collection.
+            Define metadata fields for this namespace.
           </p>
 
           <div className="space-y-3">

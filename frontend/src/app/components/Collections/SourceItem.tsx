@@ -16,7 +16,7 @@
 "use client";
 import React from "react";
 import Image from "next/image";
-import { DocumentMetadata, UIMetadataField } from "@/types/collections";
+import { DocumentMetadata, UIMetadataField } from "@/types/namespaces";
 
 interface SourceItemProps {
   name: string;

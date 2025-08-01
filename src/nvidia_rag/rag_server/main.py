@@ -82,7 +82,7 @@ except Exception as ex:
 # Initialize Pinecone client
 pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
 
-MAX_COLLECTION_NAMES = 5
+MAX_NAMESPACE_NAMES = 25000
 
 # Get a StreamingFilterThinkParser based on configuration
 StreamingFilterThinkParser = get_streaming_filter_think_parser()
@@ -120,8 +120,8 @@ class NvidiaRAG():
         stop: List[str] = None,
         reranker_top_k: int = int(CONFIG.retriever.top_k),
         vdb_top_k: int = int(CONFIG.retriever.vdb_top_k),
-        collection_name: str = "",
-        collection_names: List[str] = [CONFIG.vector_store.default_collection_name],
+        namespace_name: str = "",
+        namespace_names: List[str] = [CONFIG.vector_store.default_namespace_name],
         enable_query_rewriting: bool = CONFIG.query_rewriter.enable_query_rewriter,
         enable_reranker: bool = CONFIG.ranking.enable_reranker,
         enable_guardrails: bool = CONFIG.enable_guardrails,
@@ -149,8 +149,8 @@ class NvidiaRAG():
             stop: List of stop sequences
             reranker_top_k: Number of documents to return after reranking
             vdb_top_k: Number of documents to retrieve from vector DB
-            collection_name: Name of the collection to use
-            collection_names: List of collection names to use
+            namespace_name: Name of the namespace to use
+            namespace_names: List of namespace names to use
             enable_query_rewriting: Whether to enable query rewriting
             enable_reranker: Whether to enable reranking
             enable_guardrails: Whether to enable guardrails
@@ -205,11 +205,10 @@ class NvidiaRAG():
                 chat_history=chat_history,
                 reranker_top_k=reranker_top_k,
                 vdb_top_k=vdb_top_k,
-                collection_name=collection_name,
-                collection_names=collection_names,
+                namespace_name=namespace_name,
+                namespace_names=namespace_names,
                 embedding_model=embedding_model,
                 embedding_endpoint=embedding_endpoint,
-                vdb_endpoint=CONFIG.vector_store.url,
                 enable_reranker=enable_reranker,
                 reranker_model=reranker_model,
                 reranker_endpoint=reranker_endpoint,
@@ -228,7 +227,7 @@ class NvidiaRAG():
                 query=query,
                 chat_history=chat_history,
                 model=model,
-                collection_name=collection_name,
+                namespace_name=namespace_name,
                 enable_citations=enable_citations
             )
 
@@ -239,9 +238,8 @@ class NvidiaRAG():
         messages: List[Dict[str, str]] = [],
         reranker_top_k: int = int(CONFIG.retriever.top_k),
         vdb_top_k: int = int(CONFIG.retriever.vdb_top_k),
-        collection_name: str = "",
-        collection_names: List[str] = [CONFIG.vector_store.default_collection_name],
-        vdb_endpoint: str = CONFIG.vector_store.url,
+        namespace_name: str = "",
+        namespace_names: List[str] = [CONFIG.vector_store.default_namespace_name],
         enable_query_rewriting: bool = CONFIG.query_rewriter.enable_query_rewriter,
         enable_reranker: bool = CONFIG.ranking.enable_reranker,
         embedding_model: str = CONFIG.embeddings.model_name,
@@ -258,9 +256,8 @@ class NvidiaRAG():
             messages (List[Dict[str, str]]): List of chat messages for context.
             reranker_top_k (int): Number of document chunks to retrieve after reranking.
             vdb_top_k (int): Number of top results to retrieve from vector database.
-            collection_name (str): Name of the collection to be searched from vectorstore.
-            collection_names (List[str]): List of collection names to be searched from vectorstore.
-            vdb_endpoint (str): Endpoint URL of the vector database server.
+            namespace_name (str): Name of the namespace to be searched from vectorstore.
+            namespace_names (List[str]): List of namespace names to be searched from vectorstore.
             enable_query_rewriting (bool): Whether to enable query rewriting.
             enable_reranker (bool): Whether to enable reranking by the ranker model.
             embedding_model (str): Name of the embedding model used for vectorization.
@@ -289,27 +286,25 @@ class NvidiaRAG():
         )
 
         try:
-            if collection_name: # Would be deprecated in the future
-                logger.warning("'collection_name' parameter is provided. This will be deprecated in the future. Use 'collection_names' instead.")
-                collection_names = [collection_name]
+            if namespace_name: # Would be deprecated in the future
+                logger.warning("'namespace_name' parameter is provided. This will be deprecated in the future. Use 'namespace_names' instead.")
+                namespace_names = [namespace_name]
 
-            if not collection_names:
-                raise APIError("Collection names are not provided.", 400)
+            if not namespace_names:
+                raise APIError("Namespace names are not provided.", 400)
 
-            if len(collection_names) > 1 and not enable_reranker:
-                raise APIError("Reranking is not enabled but multiple collection names are provided.", 400)
+            if len(namespace_names) > 1 and not enable_reranker:
+                raise APIError("Reranking is not enabled but multiple namespace names are provided.", 400)
             
             if not validate_filter_expr(filter_expr):
                 raise APIError("Invalid filter expression.", 400)
 
-            if len(collection_names) > MAX_COLLECTION_NAMES:
-                raise APIError(f"Only {MAX_COLLECTION_NAMES} collections are supported at a time.", 400)
+            if len(namespace_names) > MAX_NAMESPACE_NAMES:
+                raise APIError(f"Only {MAX_NAMESPACE_NAMES} namespaces are supported at a time.", 400)
 
             document_embedder = get_embedding_model(model=embedding_model, url=embedding_endpoint)
-            # Initialize vector stores for each collection name
-            vector_stores = []
-            for collection_name in collection_names:
-                vector_stores.append(get_vectorstore(document_embedder, collection_name, vdb_endpoint))
+            # Initialize vector stores for each namespace name
+            vector_stores = [get_vectorstore(document_embedder, ns) for ns in namespace_names]
 
             # Check if all vector stores are initialized properly
             for vs in vector_stores:
@@ -422,14 +417,14 @@ class NvidiaRAG():
 
     async def get_summary(
         self,
-        collection_name: str,
+        namespace_name: str,
         file_name: str,
         blocking: bool = False,
         timeout: int = 300
     ) -> Dict[str, Any]:
         """Get the summary of a document."""
 
-        summary_response = await retrieve_summary(collection_name=collection_name, file_name=file_name, wait=blocking, timeout=timeout)
+        summary_response = await retrieve_summary(namespace_name=namespace_name, file_name=file_name, wait=blocking, timeout=timeout)
         return summary_response
 
 
@@ -439,7 +434,7 @@ class NvidiaRAG():
         query: str,
         chat_history: List[Dict[str, str]],
         model: str = "",
-        collection_name: str = "",
+        namespace_name: str = "",
         enable_citations: bool = True
     ) -> Generator[str, None, None]:
         """Execute a simple LLM chain using the components defined above.
@@ -450,7 +445,7 @@ class NvidiaRAG():
             query: The user's query
             chat_history: List of conversation messages
             model: Name of the model used for generation
-            collection_name: Name of the collection used for retrieval
+            namespace_name: Name of the namespace used for retrieval
             enable_citations: Whether to enable citations in the response
         """
         try:
@@ -492,10 +487,10 @@ class NvidiaRAG():
             llm = get_llm(**llm_settings)
 
             chain = prompt_template | llm | StreamingFilterThinkParser | StrOutputParser()
-            return generate_answer(chain.stream({"question": query}, config={'run_name':'llm-stream'}), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+            return generate_answer(chain.stream({"question": query}, config={'run_name':'llm-stream'}), [], model=model, namespace_name=namespace_name, enable_citations=enable_citations)
         except ConnectTimeout as e:
             logger.warning("Connection timed out while making a request to the LLM endpoint: %s", e)
-            return generate_answer(iter([f"Connection timed out while making a request to the NIM endpoint. Verify if the NIM server is available."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+            return generate_answer(iter([f"Connection timed out while making a request to the NIM endpoint. Verify if the NIM server is available."]), [], model=model, namespace_name=namespace_name, enable_citations=enable_citations)
 
         except Exception as e:
             logger.warning("Failed to generate response due to exception %s", e)
@@ -503,12 +498,12 @@ class NvidiaRAG():
 
             if "[403] Forbidden" in str(e) and "Invalid UAM response" in str(e):
                 logger.warning("Authentication or permission error: Verify the validity and permissions of your NVIDIA API key.")
-                return generate_answer(iter([f"Authentication or permission error: Verify the validity and permissions of your NVIDIA API key."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(iter([f"Authentication or permission error: Verify the validity and permissions of your NVIDIA API key."]), [], model=model, namespace_name=namespace_name, enable_citations=enable_citations)
             elif "[404] Not Found" in str(e):
                 logger.warning("Please verify the API endpoint and your payload. Ensure that the model name is valid.")
-                return generate_answer(iter([f"Please verify the API endpoint and your payload. Ensure that the model name is valid."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(iter([f"Please verify the API endpoint and your payload. Ensure that the model name is valid."]), [], model=model, namespace_name=namespace_name, enable_citations=enable_citations)
             else:
-                return generate_answer(iter([f"Failed to generate RAG chain response. {str(e)}"]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(iter([f"Failed to generate RAG chain response. {str(e)}"]), [], model=model, namespace_name=namespace_name, enable_citations=enable_citations)
 
     def __rag_chain(
         self,
@@ -517,11 +512,10 @@ class NvidiaRAG():
         chat_history: List[Dict[str, str]],
         reranker_top_k: int = 10,
         vdb_top_k: int = 40,
-        collection_name: str = "",
-        collection_names: List[str] = [CONFIG.vector_store.default_collection_name],
+        namespace_name: str = "",
+        namespace_names: List[str] = [CONFIG.vector_store.default_namespace_name],
         embedding_model: str = "",
         embedding_endpoint: Optional[str] = None,
-        vdb_endpoint: str = "http://localhost:5080",
         enable_reranker: bool = True,
         reranker_model: str = "",
         reranker_endpoint: Optional[str] = None,
@@ -542,11 +536,10 @@ class NvidiaRAG():
             chat_history: List of conversation messages
             reranker_top_k: Number of documents to return after reranking
             vdb_top_k: Number of documents to retrieve from vector DB
-            collection_name: Name of the collection to use
-            collection_names: List of collection names to use
+            namespace_name: Name of the namespace to use
+            namespace_names: List of namespace names to use
             embedding_model: Name of the embedding model
             embedding_endpoint: Embedding server endpoint URL
-            vdb_endpoint: Vector database endpoint URL
             enable_reranker: Whether to enable reranking
             reranker_model: Name of the reranker model
             reranker_endpoint: Reranker server endpoint URL
@@ -558,25 +551,23 @@ class NvidiaRAG():
         logger.info("Using multiturn rag to generate response from document for the query: %s", query)
 
         try:
-            # If collection_name is provided, use it as the collection name, Otherwise, use the collection names from the kwargs
-            if collection_name: # Would be deprecated in the future
-                logger.warning("'collection_name' parameter is provided. This will be deprecated in the future. Use 'collection_names' instead.")
-                collection_names = [collection_name]
-            # Check if collection names are provided
-            if not collection_names:
-                raise APIError("Collection names are not provided.", 400)
-            if len(collection_names) > 1 and not enable_reranker:
-                raise APIError("Reranking is not enabled but multiple collection names are provided.", 400)
-            if len(collection_names) > MAX_COLLECTION_NAMES:
-                raise APIError(f"Only {MAX_COLLECTION_NAMES} collections are supported at a time.", 400)
+            # If namespace_name is provided, use it as the namespace name, Otherwise, use the namespace names from the kwargs
+            if namespace_name: # Would be deprecated in the future
+                logger.warning("'namespace_name' parameter is provided. This will be deprecated in the future. Use 'namespace_names' instead.")
+                namespace_names = [namespace_name]
+            # Check if namespace names are provided
+            if not namespace_names:
+                raise APIError("Namespace names are not provided.", 400)
+            if len(namespace_names) > 1 and not enable_reranker:
+                raise APIError("Reranking is not enabled but multiple namespace names are provided.", 400)
+            if len(namespace_names) > MAX_NAMESPACE_NAMES:
+                raise APIError(f"Only {MAX_NAMESPACE_NAMES} namespaces are supported at a time.", 400)
             if not validate_filter_expr(filter_expr):
                 raise APIError("Invalid filter expression.", 400)
 
             document_embedder = get_embedding_model(model=embedding_model, url=embedding_endpoint)
-            # Initialize vector stores for each collection name
-            vector_stores = []
-            for collection_name in collection_names:
-                vector_stores.append(get_vectorstore(document_embedder, collection_name, vdb_endpoint))
+            # Initialize vector stores for each namespace name
+            vector_stores = [get_vectorstore(document_embedder, ns) for ns in namespace_names]
 
             # Check if all vector stores are initialized properly
             for vs in vector_stores:
@@ -639,7 +630,7 @@ class NvidiaRAG():
                     retriever_query = q_prompt.invoke({"input": query, "chat_history": conversation_history}, config={'run_name':'query-rewriter'})
                     logger.info("Rewritten Query: %s %s", retriever_query, len(retriever_query))
                     if retriever_query.replace('"', "'") == "''" or len(retriever_query) == 0:
-                        return generate_answer(iter([""]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                        return generate_answer(iter([""]), [], model=model, namespace_name=namespace_name, enable_citations=enable_citations)
                 else:
                     # Use previous user queries and current query to form a single query for document retrieval
                     user_queries = [msg.get("content") for msg in chat_history if msg.get("role") == "user"]
@@ -721,14 +712,14 @@ class NvidiaRAG():
                         logger.info("VLM response skipped after reasoning or was empty.")
                 except (ValueError, EnvironmentError) as e:
                     logger.warning(
-                        "VLM processing failed for query='%s', collection='%s': %s",
-                        query, collection_name, e, exc_info=True
+                        "VLM processing failed for query='%s', namespace='%s': %s",
+                        query, namespace_name, e, exc_info=True
                     )
 
                 except Exception as e:
                     logger.error(
-                        "Unexpected error during VLM processing for query='%s', collection='%s': %s",
-                        query, collection_name, e, exc_info=True
+                        "Unexpected error during VLM processing for query='%s', namespace='%s': %s",
+                        query, namespace_name, e, exc_info=True
                     )
 
             docs = [self.__format_document_with_source(d) for d in context_to_show]
@@ -752,18 +743,18 @@ class NvidiaRAG():
                 if not is_grounded:
                     logger.warning("Could not generate sufficiently grounded response after %d total reflection attempts",
                                     reflection_counter.current_count)
-                return generate_answer(iter([final_response]), context_to_show, model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(iter([final_response]), context_to_show, model=model, namespace_name=namespace_name, enable_citations=enable_citations)
             else:
-                return generate_answer(chain.stream({"question": query, "context": docs}, config={'run_name':'llm-stream'}), context_to_show, model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(chain.stream({"question": query, "context": docs}, config={'run_name':'llm-stream'}), context_to_show, model=model, namespace_name=namespace_name, enable_citations=enable_citations)
 
         except ConnectTimeout as e:
             logger.warning("Connection timed out while making a request to the LLM endpoint: %s", e)
-            return generate_answer(iter([f"Connection timed out while making a request to the NIM endpoint. Verify if the NIM server is available."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+            return generate_answer(iter([f"Connection timed out while making a request to the NIM endpoint. Verify if the NIM server is available."]), [], model=model, namespace_name=namespace_name, enable_citations=enable_citations)
 
         except requests.exceptions.ConnectionError as e:
             if "HTTPConnectionPool" in str(e):
                 logger.error("Connection pool error while connecting to service: %s", e)
-                return generate_answer(iter([f"Connection error: Failed to connect to service. Please verify if all required NIMs are running and accessible."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(iter([f"Connection error: Failed to connect to service. Please verify if all required NIMs are running and accessible."]), [], model=model, namespace_name=namespace_name, enable_citations=enable_citations)
 
         except Exception as e:
             logger.warning("Failed to generate response due to exception %s", e)
@@ -771,12 +762,12 @@ class NvidiaRAG():
 
             if "[403] Forbidden" in str(e) and "Invalid UAM response" in str(e):
                 logger.warning("Authentication or permission error: Verify the validity and permissions of your NVIDIA API key.")
-                return generate_answer(iter([f"Authentication or permission error: Verify the validity and permissions of your NVIDIA API key."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(iter([f"Authentication or permission error: Verify the validity and permissions of your NVIDIA API key."]), [], model=model, namespace_name=namespace_name, enable_citations=enable_citations)
             elif "[404] Not Found" in str(e):
                 logger.warning("Please verify the API endpoint and your payload. Ensure that the model name is valid.")
-                return generate_answer(iter([f"Please verify the API endpoint and your payload. Ensure that the model name is valid."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(iter([f"Please verify the API endpoint and your payload. Ensure that the model name is valid."]), [], model=model, namespace_name=namespace_name, enable_citations=enable_citations)
             else:
-                return generate_answer(iter([f"Failed to generate RAG chain with multi-turn response. {str(e)}"]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(iter([f"Failed to generate RAG chain with multi-turn response. {str(e)}"]), [], model=model, namespace_name=namespace_name, enable_citations=enable_citations)
 
 
     def __print_conversation_history(self, conversation_history: List[str] = None, query: str | None = None):

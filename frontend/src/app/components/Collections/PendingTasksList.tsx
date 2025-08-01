@@ -89,7 +89,7 @@ export default function PendingTasksList() {
                 {getStatusIcon(task.state)}
                 <div className="text-xs">
                   <div className="font-medium text-neutral-100">
-                    {task.collection_name}
+                    {task.namespace_name}
                   </div>
                   <div className="text-[10px] text-neutral-400">
                     {task.documents?.length || 0} document(s) • {task.state}

@@ -147,21 +147,17 @@ class Prompt(BaseModel):
     #     description="Search type for the vector space. Can be one of dense or hybrid",
     #     default=os.getenv("APP_VECTORSTORE_SEARCHTYPE", "dense")
     # )
-    vdb_endpoint: str = Field(
-        description="Endpoint url of the vector database server.",
-        default=settings.vector_store.url
-    )
     # TODO: Remove this field in the future
-    collection_name: str = Field(
-        description="Name of collection to be used for inference.",
+    namespace_name: str = Field(
+        description="Name of namespace to be used for inference.",
         default="",
         max_length=4096,
         pattern=r'[\s\S]*',
         deprecated=True
     )
-    collection_names: List[str] = Field(
-        default=[settings.vector_store.default_collection_name],
-        description="Name of the collections in the vector database.",
+    namespace_names: List[str] = Field(
+        default=[settings.vector_store.default_namespace_name],
+        description="Name of the namespaces in the vector database.",
     )
     enable_query_rewriting: bool = Field(
         description="Enable or disable query rewriting.",
@@ -285,26 +281,22 @@ class DocumentSearch(BaseModel):
         le=400,
         format="int64",
     )
-    vdb_endpoint: str = Field(
-        description="Endpoint url of the vector database server.",
-        default=settings.vector_store.url
-    )
     # Reserved for future use
     # vdb_search_type: str = Field(
     #     description="Search type for the vector space. Can be one of dense or hybrid",
     #     default=os.getenv("APP_VECTORSTORE_SEARCHTYPE", "dense")
     # )
     # TODO: Remove this field in the future
-    collection_name: str = Field(
-        description="Name of collection to be used for searching document.",
+    namespace_name: str = Field(
+        description="Name of namespace to be used for searching document.",
         default="",
         max_length=4096,
         pattern=r'[\s\S]*',
         deprecated=True
     )
-    collection_names: List[str] = Field(
-        default=[settings.vector_store.default_collection_name],
-        description="Name of the collections in the vector database.",
+    namespace_names: List[str] = Field(
+        default=[settings.vector_store.default_namespace_name],
+        description="Name of the namespaces in the vector database.",
     )
     messages: List[Message] = Field(
         default=[],
@@ -389,9 +381,9 @@ class SummaryResponse(BaseModel):
         default="",
         description="Name of the document"
     )
-    collection_name: str = Field(
+    namespace_name: str = Field(
         default="",
-        description="Name of the collection"
+        description="Name of the namespace"
     )
 
 
@@ -406,7 +398,7 @@ class BaseServiceHealthInfo(BaseModel):
 
 class DatabaseHealthInfo(BaseServiceHealthInfo):
     """Health info specific to database services"""
-    collections: Optional[int] = None
+    namespaces: Optional[int] = None
 
 class StorageHealthInfo(BaseServiceHealthInfo):
     """Health info specific to object storage services"""
@@ -473,6 +465,9 @@ async def health_check(check_dependencies: bool = False):
 
             # Process databases
             if "databases" in health_results:
+                for service in health_results["databases"]:
+                    if service["service"].lower() == "pinecone":
+                        service["url"] = "N/A for Pinecone"
                 response.databases = [
                     DatabaseHealthInfo(**service)
                     for service in health_results["databases"]
@@ -547,9 +542,8 @@ async def generate_answer(request: Request, prompt: Prompt) -> StreamingResponse
             stop=prompt.stop,
             reranker_top_k=prompt.reranker_top_k,
             vdb_top_k=prompt.vdb_top_k,
-            vdb_endpoint=prompt.vdb_endpoint,
-            collection_name=prompt.collection_name,
-            collection_names=prompt.collection_names,
+            namespace_name=prompt.namespace_name,
+            namespace_names=prompt.namespace_names,
             enable_query_rewriting=prompt.enable_query_rewriting,
             enable_reranker=prompt.enable_reranker,
             enable_guardrails=prompt.enable_guardrails,
@@ -647,9 +641,8 @@ async def document_search(request: Request, data: DocumentSearch) -> Dict[str, L
             messages=messages_dict,
             reranker_top_k=data.reranker_top_k,
             vdb_top_k=data.vdb_top_k,
-            collection_name=data.collection_name,
-            collection_names=data.collection_names,
-            vdb_endpoint=data.vdb_endpoint,
+            namespace_name=data.namespace_name,
+            namespace_names=data.namespace_names,
             enable_query_rewriting=data.enable_query_rewriting,
             enable_reranker=data.enable_reranker,
             embedding_model=data.embedding_model,
@@ -720,27 +713,27 @@ async def document_search(request: Request, data: DocumentSearch) -> Dict[str, L
 )
 async def get_summary(
     request: Request,
-    collection_name: str,
+    namespace_name: str,
     file_name: str,
     blocking: bool = False,
     timeout: int = 300
 ) -> JSONResponse:
     """
-    Retrieve document summary from the collection.
+    Retrieve document summary from the namespace.
 
     This endpoint fetches the pre-generated summary of a document. It supports both
     blocking and non-blocking behavior through the 'wait' parameter.
 
     Args:
         request (Request): FastAPI request object
-        collection_name (str): Name of the document collection
+        namespace_name (str): Name of the document namespace
         file_name (str): Name of the file to get summary for
         blocking (bool, optional): If True, waits for summary generation. Defaults to False
         timeout (int, optional): Maximum time to wait in seconds. Defaults to 300
 
     Returns:
         JSONResponse: Contains either:
-            - Summary data: {"summary": str, "file_name": str, "collection_name": str}
+            - Summary data: {"summary": str, "file_name": str, "namespace_name": str}
             - Error message: {"message": str, "status": str}
 
     Status Codes:
@@ -751,7 +744,7 @@ async def get_summary(
     """
 
     try:
-        response = await NVIDIA_RAG.get_summary(collection_name=collection_name, file_name=file_name, blocking=blocking, timeout=timeout)
+        response = await NVIDIA_RAG.get_summary(namespace_name=namespace_name, file_name=file_name, blocking=blocking, timeout=timeout)
 
         if response.get("status") == "FAILED":
             return JSONResponse(content=response, status_code=404)

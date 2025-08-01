@@ -41,8 +41,8 @@ export default function MessageInput({
   filters,
   setFilters,
 }: MessageInputProps) {
-  const { selectedCollections } = useApp();
-  const hasSelections = selectedCollections.length > 0;
+  const { selectedNamespaces } = useApp();
+  const hasSelections = selectedNamespaces.length > 0;
   const [showFilterInput, setShowFilterInput] = useState(false);
   const modalRef = useRef<HTMLDivElement | null>(null);
 
@@ -121,14 +121,14 @@ export default function MessageInput({
               <div className="rounded-full bg-neutral-100 px-4 py-1 text-sm text-black max-w-[240px] truncate">
                 <div className="flex items-center gap-1">
                   <Image
-                    src="/collection.svg"
+                    src="/namespace.svg"
                     alt="Upload files"
                     width={24}
                     height={24}
                     className="mr-1"
                   />
                   <span className="truncate">
-                    {selectedCollections.join(", ")}
+                    {selectedNamespaces.join(", ")}
                   </span>
                 </div>
               </div>
@@ -136,7 +136,7 @@ export default function MessageInput({
               <div className="rounded-full border border-white px-4 py-1 text-sm text-white">
                 <div className="flex items-center">
                   <Image
-                    src="/collection.svg"
+                    src="/namespace.svg"
                     alt="Upload files"
                     width={24}
                     height={24}

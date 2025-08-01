@@ -18,21 +18,21 @@ import { useState, useEffect } from "react";
 import { useApp } from "@/app/context/AppContext";
 import Modal from "../Modal/Modal";
 import MetadataSchemaEditor from "../RightSidebar/MetadataSchemaEditor";
-import { UIMetadataField } from "@/types/collections";
+import { UIMetadataField } from "@/types/namespaces";
 
-interface NewCollectionModalProps {
+interface NewNamespaceModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
 }
 
-export default function NewCollectionModal({
+export default function NewNamespaceModal({
   isOpen,
   onClose,
   onSuccess
-}: NewCollectionModalProps) {
-  const { setCollections, addPendingTask } = useApp();
-  const [collectionName, setCollectionName] = useState("");
+}: NewNamespaceModalProps) {
+  const { setNamespaces, addPendingTask } = useApp();
+  const [namespaceName, setNamespaceName] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [fileMetadata, setFileMetadata] = useState<Record<string, Record<string, string>>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -43,7 +43,7 @@ export default function NewCollectionModal({
 
   useEffect(() => {
     if (isOpen) {
-      setCollectionName("");
+      setNamespaceName("");
       setSelectedFiles([]);
       setFileMetadata({});
       setError(null);
@@ -92,14 +92,14 @@ export default function NewCollectionModal({
     }));
   };
 
-  const handleCollectionNameChange = (
+  const handleNamespaceNameChange = (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
-    setCollectionName(e.target.value.replace(/\s+/g, "_"));
+    setNamespaceName(e.target.value.replace(/\s+/g, "_"));
   };
 
   const handleReset = () => {
-    setCollectionName("");
+    setNamespaceName("");
     setSelectedFiles([]);
     setFileMetadata({});
     setError(null);
@@ -107,17 +107,17 @@ export default function NewCollectionModal({
 
   const handleSubmit = async () => {
     try {
-      if (!collectionName.match(/^[a-zA-Z_][a-zA-Z0-9_]*$/)) {
-        setError("Collection name must start with a letter or underscore and can only contain letters, numbers and underscores");
+      if (!namespaceName.match(/^[a-zA-Z_][a-zA-Z0-9_]*$/)) {
+        setError("Namespace name must start with a letter or underscore and can only contain letters, numbers and underscores");
         return;
       }
 
-      const checkResponse = await fetch("/api/collections");
-      if (!checkResponse.ok) throw new Error("Failed to check existing collections");
+      const checkResponse = await fetch("/api/namespaces");
+      if (!checkResponse.ok) throw new Error("Failed to check existing namespaces");
 
-      const { collections: existingCollections } = await checkResponse.json();
-      if (existingCollections.some((c: any) => c.collection_name === collectionName)) {
-        setError("A collection with this name already exists");
+      const { namespaces: existingNamespaces } = await checkResponse.json();
+      if (existingNamespaces.some((c: any) => c.namespace_name === namespaceName)) {
+        setError("A namespace with this name already exists");
         return;
       }
 
@@ -129,22 +129,22 @@ export default function NewCollectionModal({
       setIsLoading(true);
       setError(null);
 
-      const createCollectionResponse = await fetch("/api/collection", {
+      const createNamespaceResponse = await fetch("/api/namespace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          collection_name: collectionName,
+          namespace_name: namespaceName,
           embedding_dimension: 2048,
           metadata_schema: cleanedSchema,
         }),
       });
 
-      if (!createCollectionResponse.ok) throw new Error("Failed to create collection");
+      if (!createNamespaceResponse.ok) throw new Error("Failed to create namespace");
 
-      const collectionData = await createCollectionResponse.json();
-      if (collectionData.failed?.length > 0) {
+      const namespaceData = await createNamespaceResponse.json();
+      if (namespaceData.failed?.length > 0) {
         throw new Error(
-          `Failed to create collection: ${collectionData.message || "Unknown error"}`
+          `Failed to create namespace: ${namespaceData.message || "Unknown error"}`
         );
       }
 
@@ -155,7 +155,7 @@ export default function NewCollectionModal({
         });
 
         const metadata = {
-          collection_name: collectionName,
+          namespace_name: namespaceName,
           blocking: false,
           custom_metadata: selectedFiles.map((file) => ({
             filename: file.name,
@@ -180,7 +180,7 @@ export default function NewCollectionModal({
           const documentNames = selectedFiles.map(file => file.name);
           addPendingTask({
             id: uploadData.task_id,
-            collection_name: collectionName,
+            namespace_name: namespaceName,
             state: "PENDING",
             created_at: new Date().toISOString(),
             documents: documentNames
@@ -188,18 +188,18 @@ export default function NewCollectionModal({
         }
       }
 
-      const getCollectionsResponse = await fetch("/api/collections");
-      if (!getCollectionsResponse.ok) {
-        throw new Error("Failed to fetch updated collections");
+      const getNamespacesResponse = await fetch("/api/namespaces");
+      if (!getNamespacesResponse.ok) {
+        throw new Error("Failed to fetch updated namespaces");
       }
 
-      const { collections } = await getCollectionsResponse.json();
-      setCollections(
-        collections.map((collection: any) => ({
-          collection_name: collection.collection_name,
-          document_count: collection.num_entities,
-          index_count: collection.num_entities,
-          metadata_schema: collection.metadata_schema ?? [],
+      const { namespaces } = await getNamespacesResponse.json();
+      setNamespaces(
+        namespaces.map((namespace: any) => ({
+          namespace_name: namespace.namespace_name,
+          document_count: namespace.num_entities,
+          index_count: namespace.num_entities,
+          metadata_schema: namespace.metadata_schema ?? [],
         }))
       );
 
@@ -209,7 +209,7 @@ export default function NewCollectionModal({
       setIsLoading(false);
       onSuccess?.();
     } catch (err) {
-      console.error("Error creating collection:", err);
+      console.error("Error creating namespace:", err);
       setError(err instanceof Error ? err.message : "An error occurred");
       setIsLoading(false);
     }
@@ -218,14 +218,14 @@ export default function NewCollectionModal({
   const modalDescription =
     "Upload a collection of source files to provide the model with relevant information for more tailored responses (e.g., marketing plans, research notes, meeting transcripts, sales documents).";
 
-  const collectionNameInput = (
+  const namespaceNameInput = (
     <div className="mb-4">
-      <label className="mb-2 block text-sm font-medium">Collection Name</label>
+      <label className="mb-2 block text-sm font-medium">Namespace Name</label>
       <input
         type="text"
-        value={collectionName}
-        onChange={handleCollectionNameChange}
-        placeholder="Enter collection name"
+        value={namespaceName}
+        onChange={handleNamespaceNameChange}
+        placeholder="Enter namespace name"
         className="w-full rounded-md bg-neutral-800 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--nv-green)]"
         disabled={isLoading || uploadComplete}
       />
@@ -242,7 +242,7 @@ export default function NewCollectionModal({
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M6.00016 10.7799L3.22016 7.99987L2.27349 8.93987L6.00016 12.6665L14.0002 4.66654L13.0602 3.72654L6.00016 10.7799Z" fill="#22C55E"/>
             </svg>
-            <span className="font-medium text-sm">Collection created successfully</span>
+            <span className="font-medium text-sm">Namespace created successfully</span>
           </div>
           <button
             onClick={() => setUploadComplete(false)}
@@ -256,7 +256,7 @@ export default function NewCollectionModal({
         </div>
         <div className="mt-2 text-xs">
           <p className="text-neutral-400">
-            Your new collection "{collectionName}" has been created.
+            Your new namespace "{namespaceName}" has been created.
             {selectedFiles.length > 0 && (
               <> Documents are being processed and will be available soon. You can view processing status in the Add Source dialog.</>
             )}
@@ -276,13 +276,13 @@ export default function NewCollectionModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="New Collection"
+      title="New Namespace"
       description={modalDescription}
       isLoading={isLoading}
       error={error}
       selectedFiles={selectedFiles}
-      submitButtonText="Create Collection"
-      isSubmitDisabled={hasMissingRequired || !collectionName}
+      submitButtonText="Create Namespace"
+      isSubmitDisabled={hasMissingRequired || !namespaceName}
       onFileSelect={handleFileSelect}
       onRemoveFile={removeFile}
       onReset={handleReset}
@@ -293,7 +293,7 @@ export default function NewCollectionModal({
       metadataSchema={metadataSchema}
       customContent={
         <>
-          {collectionNameInput}
+          {namespaceNameInput}
           <MetadataSchemaEditor schema={metadataSchema} setSchema={setMetadataSchema} />
           {renderSuccessMessage()}
         </>

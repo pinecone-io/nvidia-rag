@@ -28,24 +28,24 @@ export interface APIMetadataField {
   type: string;
 }
 
-export interface Collection {
-  collection_name: string;
+export interface Namespace {
+  namespace_name: string;
   document_count: number;
   index_count: number;
   embedding_dimension: number;
   metadata_schema?: APIMetadataField[];
 }
 
-export interface CollectionResponse {
-  collection_name: string;
+export interface NamespaceResponse {
+  namespace_name: string;
   num_entities: number;
   metadata_schema?: APIMetadataField[];
 }
 
-export interface CollectionsAPIResponse extends BaseResponse {
-  collections: CollectionResponse[];
+export interface NamespacesAPIResponse extends BaseResponse {
+  namespaces: NamespaceResponse[];
 }
 
-export interface CollectionRequest extends VDBConfig {
-  collection_name: string;
+export interface NamespaceRequest extends VDBConfig {
+  namespace_name: string;
 }

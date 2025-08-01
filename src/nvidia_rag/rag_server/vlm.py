@@ -197,7 +197,7 @@ class VLM:
         Raises
         ------
         ValueError
-            If collection_name is not provided.
+            If namespace is not provided.
         """
         image_objects = []
 
@@ -217,7 +217,7 @@ class VLM:
                     location = content_metadata.get("location")
 
                     unique_thumbnail_id = get_unique_thumbnail_id(
-                        collection_name=doc.metadata.get("collection_name"),
+                        namespace=doc.metadata.get("namespace"),
                         file_name=file_name,
                         page_number=page_number,
                         location=location,

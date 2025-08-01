@@ -1,0 +1,7 @@
+{
+  "embeddings": {
+    "model_name": "llama-3_2-nemoretriever-300m-embed-v1",
+    "dimensions": 2048,
+    "model_engine": "nvidia-ai-endpoints"
+  }
+}

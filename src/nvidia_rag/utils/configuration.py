@@ -72,11 +72,11 @@ class VectorStoreConfig(ConfigWizard):
         help_txt="Flag to control search type - 'dense' retrieval or 'hybrid' retrieval",
     )
 
-    default_collection_name: str = configfield(
-        "default_collection_name",
+    default_namespace_name: str = configfield(
+        "default_namespace_name",
         default="multimodal_data",
-        env_name="COLLECTION_NAME",
-        help_txt="Default collection name for vector store",
+        env_name="NAMESPACE_NAME",
+        help_txt="Default namespace name for vector store",
     )
 
     consistency_level: str = configfield(

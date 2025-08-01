@@ -20,21 +20,20 @@ import {
 } from "../utils/api-utils";
 import { API_CONFIG } from "@/app/config/api";
 
-// POST /collection
+// POST /namespace
 export async function POST(request: NextRequest) {
   try {
     const requestData = await request.json();
 
-    validateRequiredFields(requestData, ["collection_name", "embedding_dimension"]);
+    validateRequiredFields(requestData, ["namespace_name", "embedding_dimension"]);
 
     const payload = {
-      vdb_endpoint: API_CONFIG.VDB.VDB_ENDPOINT,
-      collection_name: requestData.collection_name,
+      namespace_name: requestData.namespace_name,
       embedding_dimension: requestData.embedding_dimension,
       metadata_schema: requestData.metadata_schema ?? [],
     };
 
-    const url = `${API_CONFIG.VDB.BASE_URL}/collection`;
+    const url = `${API_CONFIG.VDB.BASE_URL}/namespace`;
 
     const response = await fetch(url, {
       method: "POST",
@@ -43,7 +42,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to create collection: ${response.statusText}`);
+      throw new Error(`Failed to create namespace: ${response.statusText}`);
     }
 
     const data = await response.json();

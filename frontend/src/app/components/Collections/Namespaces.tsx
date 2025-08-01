@@ -17,28 +17,28 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Image from "next/image";
-import NewCollectionModal from "./NewCollectionModal";
-import CollectionItem from "./CollectionItem";
+import NewNamespaceModal from "./NewNamespaceModal";
+import NamespaceItem from "./NamespaceItem";
 import SourceItem from "./SourceItem";
 import AddSourceModal from "./AddSourceModal";
 import { useApp } from "../../context/AppContext";
-import { CollectionResponse } from "@/types/collections";
+import { NamespaceResponse } from "@/types/namespaces";
 import { DocumentResponse } from "@/types/documents";
 import React from "react";
 
-export default function Collections() {
+export default function Namespaces() {
   // State and Context
   const {
-    collections,
-    selectedCollections,
-    setSelectedCollections,
-    setCollections,
+    namespaces,
+    selectedNamespaces,
+    setSelectedNamespaces,
+    setNamespaces,
     onDocumentsUpdated,
   } = useApp();
-  const selectedCollection = selectedCollections[0] || null;
+  const selectedNamespace = selectedNamespaces[0] || null;
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [isNewCollectionModalOpen, setIsNewCollectionModalOpen] =
+  const [isNewNamespaceModalOpen, setIsNewNamespaceModalOpen] =
     useState(false);
   const [isAddSourceModalOpen, setIsAddSourceModalOpen] = useState(false);
   const [showSourceItems, setShowSourceItems] = useState(false);
@@ -46,16 +46,16 @@ export default function Collections() {
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingCollections, setIsLoadingCollections] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [modalCollectionName, setModalCollectionName] = useState("");
+  const [modalNamespaceName, setModalNamespaceName] = useState("");
 
   // Data Fetching
   useEffect(() => {
-    fetchCollections();
-  }, [setCollections]);
+    fetchNamespaces();
+  }, [setNamespaces]);
 
   // Define fetchDocuments with useCallback to avoid recreating it in each render
   const fetchDocuments = useCallback(async () => {
-    if (!selectedCollection) return;
+    if (!selectedNamespace) return;
 
     try {
       // Only set loading to true if we don't already have documents loaded
@@ -66,7 +66,7 @@ export default function Collections() {
 
       setError(null);
       const response = await fetch(
-        `/api/documents?collection_name=${selectedCollection}`
+        `/api/documents?namespace_name=${selectedNamespace}`
       );
       if (!response.ok) throw new Error("Failed to fetch documents");
 
@@ -82,10 +82,10 @@ export default function Collections() {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedCollection, sourceItems]);
+  }, [selectedNamespace, sourceItems]);
 
   useEffect(() => {
-    if (selectedCollection && showSourceItems) {
+    if (selectedNamespace && showSourceItems) {
       // Use a slight delay to ensure state updates have been processed
       const timer = setTimeout(() => {
         fetchDocuments();
@@ -93,77 +93,77 @@ export default function Collections() {
 
       return () => clearTimeout(timer);
     }
-  }, [selectedCollection, showSourceItems, fetchDocuments]);
+  }, [selectedNamespace, showSourceItems, fetchDocuments]);
 
-  // Subscribe to document updates for the selected collection
+  // Subscribe to document updates for the selected namespace
   useEffect(() => {
-    if (!selectedCollection) return;
+    if (!selectedNamespace) return;
 
     // Set up the callback for updating documents when tasks complete
-    const unsubscribe = onDocumentsUpdated(selectedCollection, () => {
+    const unsubscribe = onDocumentsUpdated(selectedNamespace, () => {
       // Only fetch documents if we're currently viewing them
       if (showSourceItems) {
         fetchDocuments();
       }
     });
 
-    // Clean up the subscription when component unmounts or selectedCollection changes
+    // Clean up the subscription when component unmounts or selectedNamespace changes
     return unsubscribe;
-  }, [selectedCollection, showSourceItems, onDocumentsUpdated, fetchDocuments]);
+  }, [selectedNamespace, showSourceItems, onDocumentsUpdated, fetchDocuments]);
 
   // API Calls
-  const fetchCollections = async () => {
+  const fetchNamespaces = async () => {
     try {
       setIsLoadingCollections(true);
       setError(null);
-      const response = await fetch("/api/collections");
-      if (!response.ok) throw new Error("Failed to fetch collections");
+      const response = await fetch("/api/namespaces");
+      if (!response.ok) throw new Error("Failed to fetch namespaces");
 
       const data = await response.json();
-      setCollections(
-        data.collections.map((collection: CollectionResponse) => ({
-          collection_name: collection.collection_name,
-          document_count: collection.num_entities,
-          index_count: collection.num_entities,
-          metadata_schema: collection.metadata_schema,
+      setNamespaces(
+        data.namespaces.map((namespace: NamespaceResponse) => ({
+          namespace_name: namespace.namespace_name,
+          document_count: namespace.num_entities,
+          index_count: namespace.num_entities,
+          metadata_schema: namespace.metadata_schema,
         }))
       );
     } catch (error) {
-      console.error("Error fetching collections:", error);
-      setError("Failed to load collections");
+      console.error("Error fetching namespaces:", error);
+      setError("Failed to load namespaces");
     } finally {
       setIsLoadingCollections(false);
     }
   };
 
   // Event Handlers
-  const handleDeleteCollection = async (name: string) => {
+  const handleDeleteNamespace = async (name: string) => {
     try {
-      const response = await fetch("/api/collections", {
+      const response = await fetch("/api/namespaces", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ collection_names: [name] }),
+        body: JSON.stringify({ namespace_names: [name] }),
       });
 
-      if (!response.ok) throw new Error("Failed to delete collection");
+      if (!response.ok) throw new Error("Failed to delete namespace");
 
-      setCollections(collections.filter((c) => c.collection_name !== name));
-      setSelectedCollections((prev) => prev.filter((c) => c !== name));
-      if (selectedCollection === name) {
+      setNamespaces(namespaces.filter((c) => c.namespace_name !== name));
+      setSelectedNamespaces((prev: any[]) => prev.filter((c) => c !== name));
+      if (selectedNamespace === name) {
         setShowSourceItems(false);
       }
     } catch (error) {
-      console.error("Error deleting collection:", error);
-      setError("Failed to delete collection");
+      console.error("Error deleting namespace:", error);
+      setError("Failed to delete namespace");
     }
   };
 
   const handleDeleteDocument = async (documentName: string) => {
-    if (!selectedCollection) return;
+    if (!selectedNamespace) return;
 
     try {
       const response = await fetch(
-        `/api/documents?collection_name=${selectedCollection}`,
+        `/api/documents?namespace_name=${selectedNamespace}`,
         {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
@@ -177,15 +177,15 @@ export default function Collections() {
 
       await fetchDocuments();
 
-      const collectionsResponse = await fetch("/api/collections");
-      if (collectionsResponse.ok) {
-        const { collections: updatedCollections } =
-          await collectionsResponse.json();
-        setCollections(
-          updatedCollections.map((collection: any) => ({
-            collection_name: collection.collection_name,
-            document_count: collection.num_entities,
-            index_count: collection.num_entities,
+      const namespacesResponse = await fetch("/api/namespaces");
+      if (namespacesResponse.ok) {
+        const { namespaces: updatedNamespaces } =
+          await namespacesResponse.json();
+        setNamespaces(
+          updatedNamespaces.map((namespace: any) => ({
+            namespace_name: namespace.namespace_name,
+            document_count: namespace.num_entities,
+            index_count: namespace.num_entities,
           }))
         );
       }
@@ -196,31 +196,31 @@ export default function Collections() {
     }
   };
 
-  const handleViewFiles = (collectionName: string) => {
+  const handleViewFiles = (namespaceName: string) => {
     // Use React 18's automatic batching or wrap in a function to batch these updates
     React.startTransition(() => {
-      setSelectedCollections([collectionName]);
+      setSelectedNamespaces([namespaceName]);
       setShowSourceItems(true);
     });
   };
 
-  const handleCollectionSelect = (collectionName: string) => {
-    setSelectedCollections((prev) =>
-      prev.includes(collectionName)
-        ? prev.filter((name) => name !== collectionName)
-        : [...prev, collectionName]
+  const handleNamespaceSelect = (namespaceName: string) => {
+    setSelectedNamespaces((prev: any[]) =>
+      prev.includes(namespaceName)
+        ? prev.filter((name: any) => name !== namespaceName)
+        : [...prev, namespaceName]
     );
     setShowSourceItems(false);
   };
 
-  const handleBackToCollections = () => {
+  const handleBackToNamespaces = () => {
     setShowSourceItems(false);
     setSourceItems([]);
   };
 
-  // Function to open AddSourceModal for a specific collection
-  const openAddSourceModal = (collectionName: string) => {
-    setModalCollectionName(collectionName);
+  // Function to open AddSourceModal for a specific namespace
+  const openAddSourceModal = (namespaceName: string) => {
+    setModalNamespaceName(namespaceName);
     setIsAddSourceModalOpen(true);
   };
 
@@ -231,23 +231,23 @@ export default function Collections() {
         <h2 className="text-sm font-medium">
           {showSourceItems ? (
             <button
-              onClick={handleBackToCollections}
+              onClick={handleBackToNamespaces}
               className="whitespace-nowrap hover:text-[var(--nv-green)]"
             >
-              All Collections
+              All Namespaces
             </button>
           ) : (
-            <span className="whitespace-nowrap">All Collections</span>
+            <span className="whitespace-nowrap">All Namespaces</span>
           )}
         </h2>
-        {showSourceItems && selectedCollection && (
+        {showSourceItems && selectedNamespace && (
           <>
             <span className="text-gray-500">/</span>
             <span
-              title={selectedCollection}
+              title={selectedNamespace}
               className="inline-block max-w-[170px] truncate text-sm font-medium text-[var(--nv-green)]"
             >
-              {selectedCollection}
+              {selectedNamespace}
             </span>
           </>
         )}
@@ -257,14 +257,14 @@ export default function Collections() {
 
   const renderContent = () => {
     if (isLoadingCollections) {
-      return <LoadingState message="Loading collections..." />;
+      return <LoadingState message="Loading namespaces..." />;
     }
 
     if (error) {
       return <ErrorState error={error} />;
     }
 
-    if (collections.length === 0) {
+    if (namespaces.length === 0) {
       return <EmptyState />;
     }
 
@@ -272,7 +272,7 @@ export default function Collections() {
       <>
         <div className="collections-container relative">
           <div className="max-h-[calc(100vh-260px)] overflow-y-auto pr-2">
-            {showSourceItems ? <DocumentsList /> : <CollectionsList />}
+            {showSourceItems ? <DocumentsList /> : <NamespacesList />}
           </div>
         </div>
       </>
@@ -315,15 +315,15 @@ export default function Collections() {
       <div className="mb-4">
         <Image
           src="/empty-collections.svg"
-          alt="No collections"
+          alt="No namespaces"
           width={48}
           height={48}
           className="opacity-50"
         />
       </div>
-      <p className="mb-2 text-sm text-gray-400">No collections</p>
+      <p className="mb-2 text-sm text-gray-400">No namespaces</p>
       <p className="text-xs text-gray-500">
-        Create your first collection and add files to customize your model
+        Create your first namespace and add files to customize your model
         response.
       </p>
     </div>
@@ -346,7 +346,7 @@ export default function Collections() {
                 className="mb-4 opacity-50"
               />
               <p className="text-sm text-gray-400">
-                No documents in this collection
+                No documents in this namespace
               </p>
             </div>
           ) : (
@@ -370,36 +370,36 @@ export default function Collections() {
     );
   }, [sourceItems, isLoading, error, handleDeleteDocument]);
 
-  const CollectionsList = useMemo(() => {
+  const NamespacesList = useMemo(() => {
     return () => (
       <>
-        {collections
-          .filter((collection) =>
-            collection.collection_name
+        {namespaces
+          .filter((namespace: any) =>
+            namespace.namespace_name
               .toLowerCase()
               .includes(searchQuery.toLowerCase())
           )
-          .map((collection) => (
-            <CollectionItem
-              key={collection.collection_name}
-              name={collection.collection_name}
-              metadataSchema={collection.metadata_schema}
-              isSelected={selectedCollections.includes(collection.collection_name)}
-              onSelect={() => handleCollectionSelect(collection.collection_name)}
-              onDelete={() => handleDeleteCollection(collection.collection_name)}
+          .map((namespace: any) => (
+            <NamespaceItem
+              key={namespace.namespace_name}
+              name={namespace.namespace_name}
+              metadataSchema={namespace.metadata_schema}
+              isSelected={selectedNamespaces.includes(namespace.namespace_name)}
+              onSelect={() => handleNamespaceSelect(namespace.namespace_name)}
+              onDelete={() => handleDeleteNamespace(namespace.namespace_name)}
               handleViewFiles={handleViewFiles}
               onDocumentsUpdate={fetchDocuments}
-              onShowTaskStatus={() => openAddSourceModal(collection.collection_name)}
+              onShowTaskStatus={() => openAddSourceModal(namespace.namespace_name)}
             />
           ))}
       </>
     );
   }, [
-    collections,
+    namespaces,
     searchQuery,
-    selectedCollections,
-    handleCollectionSelect,
-    handleDeleteCollection,
+    selectedNamespaces,
+    handleNamespaceSelect,
+    handleDeleteNamespace,
     handleViewFiles,
     fetchDocuments,
     openAddSourceModal,
@@ -410,7 +410,7 @@ export default function Collections() {
       <div className="relative mb-6">
         <input
           type="text"
-          placeholder="Search collections"
+          placeholder="Search namespaces"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full rounded-md bg-neutral-900 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--nv-green)]"
@@ -426,38 +426,38 @@ export default function Collections() {
       <div className="mt-auto flex gap-2">
         <button
           className="flex w-full items-center justify-center gap-2 rounded-full border border-[var(--nv-green)] bg-black px-4 py-2 font-medium text-white transition-colors hover:bg-[#1A1A1A] disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={() => setIsNewCollectionModalOpen(true)}
+          onClick={() => setIsNewNamespaceModalOpen(true)}
           disabled={isLoadingCollections}
         >
-          <span className="text-sm">New Collection</span>
+          <span className="text-sm">New Namespace</span>
         </button>
         <button
           className="flex w-full items-center justify-center gap-2 rounded-full border border-[var(--nv-green)] bg-black px-4 py-2 font-medium text-white transition-colors hover:bg-[#1A1A1A] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={
-            collections.length === 0 ||
+            namespaces.length === 0 ||
             isLoadingCollections ||
-            (showSourceItems && !selectedCollection)
+            (showSourceItems && !selectedNamespace)
           }
           onClick={() => {
-            setModalCollectionName(selectedCollection || "");
+            setModalNamespaceName(selectedNamespace || "");
             setIsAddSourceModalOpen(true);
           }}
         >
           <span className="text-sm">Add Source</span>
         </button>
 
-        <NewCollectionModal
-          isOpen={isNewCollectionModalOpen}
+        <NewNamespaceModal
+          isOpen={isNewNamespaceModalOpen}
           onSuccess={() => {
-            fetchCollections(); // ← trigger immediate reload
+            fetchNamespaces(); // ← trigger immediate reload
           }}
-          onClose={() => setIsNewCollectionModalOpen(false)}
+          onClose={() => setIsNewNamespaceModalOpen(false)}
         />
         <AddSourceModal
-          key={modalCollectionName || selectedCollection || ""}
+          key={modalNamespaceName || selectedNamespace || ""}
           isOpen={isAddSourceModalOpen}
           onClose={() => setIsAddSourceModalOpen(false)}
-          collectionName={modalCollectionName || selectedCollection || ""}
+          namespaceName={modalNamespaceName || selectedNamespace || ""}
           onDocumentsUpdate={fetchDocuments}
         />
       </div>

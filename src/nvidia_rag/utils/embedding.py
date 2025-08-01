@@ -24,6 +24,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.embeddings import Embeddings
 
 from nvidia_rag.utils.common import get_config, sanitize_nim_url
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -58,16 +59,19 @@ def get_embedding_model(model: str, url: str) -> Embeddings:
         return hf_embeddings
 
     if settings.embeddings.model_engine == "nvidia-ai-endpoints":
+        nv_embeddings = NVIDIAEmbeddings(model=model, truncate="END")
+        if os.getenv('APP_EMBEDDINGS_DIMENSIONS'):
+            nv_embeddings.dimension = int(os.getenv('APP_EMBEDDINGS_DIMENSIONS'))
+        else:
+            nv_embeddings.dimension = settings.embeddings.dimensions
         if url:
             logger.info("Using embedding model %s hosted at %s",
                         model,
                         url)
-            return NVIDIAEmbeddings(base_url=url,
-                                    model=model,
-                                    truncate="END")
+            nv_embeddings.base_url = url
 
         logger.info("Using embedding model %s hosted at api catalog", model)
-        return NVIDIAEmbeddings(model=model, truncate="END")
+        return nv_embeddings
 
     raise RuntimeError(
         "Unable to find any supported embedding model. Supported engine is huggingface and nvidia-ai-endpoints.")

@@ -17,10 +17,10 @@ This is the Main module for RAG ingestion pipeline.
 1. Upload documents: Upload documents to the vector store. Method name: upload_documents
 2. Update documents: Update documents in the vector store. Method name: update_documents
 3. Status: Get the status of an ingestion task. Method name: status
-4. Create collection: Create a new collection in the vector store. Method name: create_collection
-5. Create collections: Create new collections in the vector store. Method name: create_collections
-6. Delete collections: Delete collections in the vector store. Method name: delete_collections
-7. Get collections: Get all collections in the vector store. Method name: get_collections
+4. Create namespace: Create a new namespace in the vector store. Method name: create_namespace
+5. Create namespaces: Create new namespaces in the vector store. Method name: create_namespaces
+6. Delete namespaces: Delete namespaces in the vector store. Method name: delete_namespaces
+7. Get namespaces: Get all namespaces in the vector store. Method name: get_namespaces
 8. Get documents: Get documents in the vector store. Method name: get_documents
 9. Delete documents: Delete documents in the vector store. Method name: delete_documents
 
@@ -61,17 +61,15 @@ from nvidia_rag.utils.common import get_config
 from nvidia_rag.ingestor_server.task_handler import INGESTION_TASK_HANDLER
 from nv_ingest_client.util.file_processing.extract import EXTENSION_TO_DOCUMENT_TYPE
 from nvidia_rag.utils.minio_operator import (get_minio_operator,
-                                      get_unique_thumbnail_id_collection_prefix,
+                                      get_unique_thumbnail_id_namespace_prefix,
                                       get_unique_thumbnail_id_file_name_prefix,
                                       get_unique_thumbnail_id)
 from nvidia_rag.utils.vectorstore import (
     get_vectorstore,
     get_docs_vectorstore_langchain,
     del_docs_vectorstore_langchain,
-    create_collection,
-    create_collections,
-    get_collection,
-    delete_collections,
+    delete_namespaces,
+    get_namespaces,
 )
 from pinecone import Pinecone
 
@@ -103,7 +101,7 @@ class NvidiaRAGIngestor():
         filepaths: List[str],
         delete_files_after_ingestion: bool = False,
         blocking: bool = False,
-        collection_name: str = "multimodal_data",
+        namespace_name: str = "multimodal_data",
         split_options: Dict[str, Any] = {"chunk_size": CONFIG.nv_ingest.chunk_size, "chunk_overlap": CONFIG.nv_ingest.chunk_overlap},
         custom_metadata: List[Dict[str, Any]] = [],
         generate_summary: bool = False
@@ -116,7 +114,7 @@ class NvidiaRAGIngestor():
                 _task = lambda: self.__ingest_docs(
                     filepaths=filepaths,
                     delete_files_after_ingestion=delete_files_after_ingestion,
-                    collection_name=collection_name,
+                    namespace_name=namespace_name,
                     split_options=split_options,
                     custom_metadata=custom_metadata,
                     generate_summary=generate_summary
@@ -127,7 +125,7 @@ class NvidiaRAGIngestor():
                 response_dict = await self.__ingest_docs(
                     filepaths=filepaths,
                     delete_files_after_ingestion=delete_files_after_ingestion,
-                    collection_name=collection_name,
+                    namespace_name=namespace_name,
                     split_options=split_options,
                     custom_metadata=custom_metadata,
                     generate_summary=generate_summary
@@ -147,7 +145,7 @@ class NvidiaRAGIngestor():
         self,
         filepaths: List[str],
         delete_files_after_ingestion: bool = False,
-        collection_name: str = "multimodal_data",
+        namespace_name: str = "multimodal_data",
         split_options: Dict[str, Any] = {"chunk_size": CONFIG.nv_ingest.chunk_size, "chunk_overlap": CONFIG.nv_ingest.chunk_overlap},
         custom_metadata: List[Dict[str, Any]] = [],
         generate_summary: bool = False
@@ -159,18 +157,18 @@ class NvidiaRAGIngestor():
         Arguments:
             - filepaths: List[str] - List of absolute filepaths
             - delete_files_after_ingestion: bool - Whether to delete files after ingestion
-            - collection_name: str - Name of the collection in the vector database
+            - namespace_name: str - Name of the namespace in the vector database
             - split_options: Dict[str, Any] - Options for splitting documents
             - custom_metadata: List[Dict[str, Any]] - Custom metadata to be added to documents
         """
 
-        logger.info("Performing ingestion in collection_name: %s", collection_name)
+        logger.info("Performing ingestion in namespace_name: %s", namespace_name)
         logger.debug("Filepaths for ingestion: %s", filepaths)
 
         try:
             # Verify the metadata
             if custom_metadata:
-                validation_status, validation_errors = await self.__verify_metadata(custom_metadata, collection_name, filepaths)
+                validation_status, validation_errors = await self.__verify_metadata(custom_metadata, namespace_name, filepaths)
                 if not validation_status:
                     return {
                         "message": f"Custom metadata validation failed: {validation_errors}",
@@ -184,15 +182,15 @@ class NvidiaRAGIngestor():
             failed_validation_documents = []
 
             # Peform ingestion using nvingest for all files that have not failed
-            # Check if the provided collection_name exists in vector-DB
+            # Check if the provided namespace_name exists in vector-DB
             pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"), source_tag="nvidia:rag-blueprint")
-            if not pinecone_client.has_index(collection_name):
-                raise ValueError(f"Pinecone index {collection_name} does not exist. Ensure the index is created before ingestion.")
+            if not pinecone_client.has_index(namespace_name):
+                raise ValueError(f"Pinecone index {namespace_name} does not exist. Ensure the index is created before ingestion.")
 
             start_time = time.time()
             results, failures = await self.__nvingest_upload_doc(
                 filepaths=filepaths,
-                collection_name=collection_name,
+                namespace_name=namespace_name,
                 split_options=split_options,
                 custom_metadata=custom_metadata,
                 generate_summary=generate_summary
@@ -201,7 +199,7 @@ class NvidiaRAGIngestor():
             logger.info("== Overall Ingestion completed successfully in %s seconds ==", time.time() - start_time)
 
             # Get failed documents
-            failed_documents = await self.__get_failed_documents(failures, filepaths, collection_name)
+            failed_documents = await self.__get_failed_documents(failures, filepaths, namespace_name)
             failures_filepaths = [failed_document.get("document_name") for failed_document in failed_documents]
 
             filename_to_metadata_map = {custom_metadata_item.get("filename"): custom_metadata_item.get("metadata") for custom_metadata_item in custom_metadata}
@@ -248,7 +246,7 @@ class NvidiaRAGIngestor():
     async def __ingest_document_summary(
         self,
         results: List[List[Dict[str, Union[str, dict]]]],
-        collection_name: str
+        namespace_name: str
     )-> None:
         """
         Generates and ingests document summaries for a list of files.
@@ -260,7 +258,7 @@ class NvidiaRAGIngestor():
         logger.info(f"Document summary ingestion started")
         start_time = time.time()
         # Prepare summary documents
-        documents = await self.__prepare_summary_documents(results, collection_name)
+        documents = await self.__prepare_summary_documents(results, namespace_name)
         # Generate summary for each document
         documents = await self.__generate_summary_for_documents(documents)
         # # Add document summary to minio
@@ -273,7 +271,7 @@ class NvidiaRAGIngestor():
         filepaths: List[str],
         delete_files_after_ingestion: bool = False,
         blocking: bool = False,
-        collection_name: str = "multimodal_data",
+        namespace_name: str = "multimodal_data",
         split_options: Dict[str, Any] = {"chunk_size": CONFIG.nv_ingest.chunk_size, "chunk_overlap": CONFIG.nv_ingest.chunk_overlap},
         custom_metadata: List[Dict[str, Any]] = [],
         generate_summary: bool = False
@@ -288,21 +286,21 @@ class NvidiaRAGIngestor():
 
             if delete_files_after_ingestion:
                 response = self.delete_documents([file_name],
-                                                    collection_name=collection_name)
+                                                    namespace_name=namespace_name)
             else:
                  response = self.delete_documents([file],
-                                                    collection_name=collection_name)
+                                                    namespace_name=namespace_name)
 
             if response["total_documents"] == 0:
-                logger.info("Unable to remove %s from collection. Either the document does not exist or there is an error while removing. Proceeding with ingestion.", file_name)
+                logger.info("Unable to remove %s from namespace. Either the document does not exist or there is an error while removing. Proceeding with ingestion.", file_name)
             else:
-                logger.info("Successfully removed %s from collection %s.", file_name, collection_name)
+                logger.info("Successfully removed %s from namespace %s.", file_name, namespace_name)
 
         response = await self.upload_documents(
             filepaths=filepaths,
             delete_files_after_ingestion=delete_files_after_ingestion,
             blocking=blocking,
-            collection_name=collection_name,
+            namespace_name=namespace_name,
             split_options=split_options,
             custom_metadata=custom_metadata,
             generate_summary=generate_summary
@@ -356,113 +354,70 @@ class NvidiaRAGIngestor():
             }
 
 
-    def create_collections(
-        self, collection_names: List[str], vdb_endpoint: str, embedding_dimension: int = 2048
-    ) -> str:
-        """
-        Main function called by ingestor server to create new collections in vector-DB
-
-        Arguments:
-            - collection_names: List[str] - List of collection names to create
-            - vdb_endpoint: str - URL of the vector database endpoint
-            - embedding_dimension: int - Dimension of the embedding vectors
-
-        Returns:
-            - str - Success message
-        """
-        try:
-            result = create_collections(collection_names, vdb_endpoint, embedding_dimension)
-            return f"Collections created successfully: {result}"
-        except Exception as e:
-            logger.error(f"Failed to create collections in Pinecone: {e}")
-            raise e
-
-    def create_collection(
-        self, collection_name: str, vdb_endpoint: str, embedding_dimension: int = 2048, metadata_schema: List[Dict[str, str]] = []
-    ) -> str:
-        """
-        Main function called by ingestor server to create a new collection in vector-DB
-
-        Arguments:
-            - collection_name: str - Name of the collection to create
-            - vdb_endpoint: str - URL of the vector database endpoint
-            - embedding_dimension: int - Dimension of the embedding vectors
-            - metadata_schema: List[Dict[str, str]] - Metadata schema for the collection
-
-        Returns:
-            - str - Success message
-        """
-        try:
-            create_collection(collection_name, vdb_endpoint, embedding_dimension)
-            return f"Collection '{collection_name}' created successfully"
-        except Exception as e:
-            logger.error(f"Failed to create collection in Pinecone: {e}")
-            raise e
-
-    def delete_collections(
-        self, vdb_endpoint: str, collection_names: List[str],
+    def delete_namespaces(
+        self, vdb_endpoint: str, namespace_names: List[str],
     ) -> Dict[str, Any]:
         """
-        Main function called by ingestor server to delete collections in vector-DB
+        Main function called by ingestor server to delete namespaces in vector-DB
 
         Arguments:
             - vdb_endpoint: str - URL of the vector database endpoint
-            - collection_names: List[str] - List of collection names to delete
+            - namespace_names: List[str] - List of namespace names to delete
 
         Returns:
             - Dict[str, Any] - Result of the deletion operation
         """
         try:
-            result = delete_collections(vdb_endpoint, collection_names)
+            result = delete_namespaces(namespace_names)
             return {
-                "message": "Collections deleted successfully",
+                "message": "Namespaces deleted successfully",
                 "result": result
             }
         except Exception as e:
-            logger.error(f"Failed to delete collections in Pinecone: {e}")
+            logger.error(f"Failed to delete namespaces in Pinecone: {e}")
             raise e
 
-    def get_collections(self, vdb_endpoint: str) -> Dict[str, Any]:
+    def get_namespaces(self, vdb_endpoint: str) -> Dict[str, Any]:
         """
-        Main function called by ingestor server to get all collections in vector-DB
+        Main function called by ingestor server to get all namespaces in vector-DB
 
         Arguments:
             - vdb_endpoint: str - URL of the vector database endpoint
 
         Returns:
-            - Dict[str, Any] - List of collections with their metadata
+            - Dict[str, Any] - List of namespaces with their metadata
         """
         try:
-            result = get_collection(vdb_endpoint)
+            result = get_namespaces()
             return {
-                "message": "Collections retrieved successfully",
-                "collections": result
+                "message": "Namespaces retrieved successfully",
+                "namespaces": result
             }
         except Exception as e:
-            logger.error(f"Failed to get collections from Pinecone: {e}")
+            logger.error(f"Failed to get namespaces from Pinecone: {e}")
             raise e
 
-    def get_documents(self, collection_name: str, vdb_endpoint: str) -> Dict[str, Any]:
+    def get_documents(self, namespace_name: str, vdb_endpoint: str) -> Dict[str, Any]:
         """
         Main function called by ingestor server to get documents in vector-DB
 
         Arguments:
-            - collection_name: str - Name of the collection to get documents from
+            - namespace_name: str - Name of the namespace to get documents from
             - vdb_endpoint: str - URL of the vector database endpoint
 
         Returns:
             - Dict[str, Any] - List of documents with their metadata
         """
         try:
-            vectorstore = get_vectorstore(DOCUMENT_EMBEDDER, collection_name, vdb_endpoint)
+            vectorstore = get_vectorstore(DOCUMENT_EMBEDDER, namespace_name, vdb_endpoint)
             if vectorstore is None:
                 return {
-                    "message": f"Collection '{collection_name}' does not exist",
+                    "message": f"Namespace '{namespace_name}' does not exist",
                     "total_documents": 0,
                     "documents": []
                 }
             
-            documents = get_docs_vectorstore_langchain(vectorstore, collection_name, vdb_endpoint)
+            documents = get_docs_vectorstore_langchain(vectorstore, namespace_name, vdb_endpoint)
             return {
                 "message": "Documents retrieved successfully",
                 "total_documents": len(documents),
@@ -476,13 +431,13 @@ class NvidiaRAGIngestor():
                 "documents": []
             }
 
-    def delete_documents(self, document_names: List[str], collection_name: str, vdb_endpoint: str, include_upload_path: bool = False) -> Dict[str, Any]:
+    def delete_documents(self, document_names: List[str], namespace_name: str, vdb_endpoint: str, include_upload_path: bool = False) -> Dict[str, Any]:
         """
         Main function called by ingestor server to delete documents in vector-DB
 
         Arguments:
             - document_names: List[str] - List of document names to delete
-            - collection_name: str - Name of the collection to delete documents from
+            - namespace_name: str - Name of the namespace to delete documents from
             - vdb_endpoint: str - URL of the vector database endpoint
             - include_upload_path: bool - Whether to include upload path in document name
 
@@ -490,15 +445,15 @@ class NvidiaRAGIngestor():
             - Dict[str, Any] - Result of the deletion operation
         """
         try:
-            vectorstore = get_vectorstore(DOCUMENT_EMBEDDER, collection_name, vdb_endpoint)
+            vectorstore = get_vectorstore(DOCUMENT_EMBEDDER, namespace_name, vdb_endpoint)
             if vectorstore is None:
                 return {
-                    "message": f"Collection '{collection_name}' does not exist",
+                    "message": f"Namespace '{namespace_name}' does not exist",
                     "total_documents": 0,
                     "documents": []
                 }
             
-            success = del_docs_vectorstore_langchain(vectorstore, document_names, collection_name, include_upload_path)
+            success = del_docs_vectorstore_langchain(vectorstore, document_names, namespace_name, include_upload_path)
             if success:
                 return {
                     "message": "Documents deleted successfully",
@@ -521,16 +476,16 @@ class NvidiaRAGIngestor():
 
     def __put_content_to_minio(
         self, results: List[List[Dict[str, Union[str, dict]]]],
-        collection_name: str,
+        namespace_name: str,
     ) -> None:
         """
         Put nv-ingest image/table/chart content to minio
         """
         if not CONFIG.captioning.enable_captioning:
-            logger.info(f"Skipping minio insertion for collection: {collection_name}")
+            logger.info(f"Skipping minio insertion for namespace: {namespace_name}")
             return # Don't perform minio insertion if captioning is disabled
 
-        logger.info(f"== MinIO upload for collection_name: {collection_name} started ==")
+        logger.info(f"== MinIO upload for namespace_name: {namespace_name} started ==")
         start_time = time.time()
 
         try:
@@ -542,7 +497,7 @@ class NvidiaRAGIngestor():
                         content = result_element.get("content", "")
                         if content:
                             # Generate unique ID for the content
-                            unique_id = get_unique_thumbnail_id_collection_prefix(collection_name)
+                            unique_id = get_unique_thumbnail_id_namespace_prefix(namespace_name)
                             
                             # Create payload for MinIO
                             payload = {
@@ -560,27 +515,27 @@ class NvidiaRAGIngestor():
                     logger.info(f"Bulk uploading {len(payloads)} payloads to MinIO")
                     MINIO_OPERATOR.put_payloads_bulk(
                         payloads=payloads,
-                        collection_prefix=collection_name
+                        namespace_prefix=namespace_name
                     )
                 else:
                     logger.info(f"Sequentially uploading {len(payloads)} payloads to MinIO")
                     for payload in payloads:
                         MINIO_OPERATOR.put_payload(
                             payload=payload,
-                            collection_prefix=collection_name
+                            namespace_prefix=namespace_name
                         )
 
             end_time = time.time()
-            logger.info(f"== MinIO upload for collection_name: {collection_name} completed in {end_time - start_time} seconds ==")
+            logger.info(f"== MinIO upload for namespace_name: {namespace_name} completed in {end_time - start_time} seconds ==")
 
         except Exception as e:
-            logger.error("Failed to put content to minio: %s, citations would be disabled for collection: %s", str(e),
-                        collection_name)
+            logger.error("Failed to put content to minio: %s, citations would be disabled for namespace: %s", str(e),
+                        namespace_name)
 
     async def __nvingest_upload_doc(
         self,
         filepaths: List[str],
-        collection_name: str,
+        namespace_name: str,
         split_options: Dict[str, Any] = {"chunk_size": CONFIG.nv_ingest.chunk_size, "chunk_overlap": CONFIG.nv_ingest.chunk_overlap},
         custom_metadata: List[Dict[str, Any]] = [],
         generate_summary: bool = False
@@ -590,7 +545,7 @@ class NvidiaRAGIngestor():
 
         Arguments:
             - filepaths: List[str] - List of absolute filepaths
-            - collection_name: str - Name of the collection in the vector database
+            - namespace_name: str - Name of the namespace in the vector database
             - split_options: Dict[str, Any] - Options for splitting documents
             - custom_metadata: List[Dict[str, Any]] - Custom metadata to be added to documents
             - generate_summary: bool - Whether to generate summaries for documents
@@ -598,7 +553,7 @@ class NvidiaRAGIngestor():
         Returns:
             - Tuple[List[List[Dict[str, Union[str, dict]]]], List[Dict[str, Any]]] - Results and failures
         """
-        logger.info(f"== NV-Ingest upload for collection_name: {collection_name} started ==")
+        logger.info(f"== NV-Ingest upload for namespace_name: {namespace_name} started ==")
         start_time = time.time()
 
         try:
@@ -615,7 +570,7 @@ class NvidiaRAGIngestor():
                         logger.info(f"Processing batch {batch_num} with {len(sub_filepaths)} files")
                         return await self.__nv_ingest_ingestion(
                             filepaths=sub_filepaths,
-                            collection_name=collection_name,
+                            namespace_name=namespace_name,
                             batch_number=batch_num,
                             split_options=split_options,
                             custom_metadata=custom_metadata,
@@ -651,7 +606,7 @@ class NvidiaRAGIngestor():
                         
                         batch_result, batch_failures = await self.__nv_ingest_ingestion(
                             filepaths=batch,
-                            collection_name=collection_name,
+                            namespace_name=namespace_name,
                             batch_number=batch_num,
                             split_options=split_options,
                             custom_metadata=custom_metadata,
@@ -663,14 +618,14 @@ class NvidiaRAGIngestor():
                 # Single batch processing
                 results, failures = await self.__nv_ingest_ingestion(
                     filepaths=filepaths,
-                    collection_name=collection_name,
+                    namespace_name=namespace_name,
                     split_options=split_options,
                     custom_metadata=custom_metadata,
                     generate_summary=generate_summary
                 )
 
             end_time = time.time()
-            logger.info(f"== NV-Ingest upload for collection_name: {collection_name} completed in {end_time - start_time} seconds ==")
+            logger.info(f"== NV-Ingest upload for namespace_name: {namespace_name} completed in {end_time - start_time} seconds ==")
 
             return results, failures
 
@@ -681,7 +636,7 @@ class NvidiaRAGIngestor():
     async def __nv_ingest_ingestion(
         self,
         filepaths: List[str],
-        collection_name: str,
+        namespace_name: str,
         batch_number: int=0,
         split_options: Dict[str, Any] = {"chunk_size": CONFIG.nv_ingest.chunk_size, "chunk_overlap": CONFIG.nv_ingest.chunk_overlap},
         custom_metadata: List[Dict[str, Any]] = [],
@@ -692,7 +647,7 @@ class NvidiaRAGIngestor():
 
         Arguments:
             - filepaths: List[str] - List of absolute filepaths
-            - collection_name: str - Name of the collection in the vector database
+            - namespace_name: str - Name of the namespace in the vector database
             - batch_number: int - Batch number for logging
             - split_options: Dict[str, Any] - Options for splitting documents
             - custom_metadata: List[Dict[str, Any]] - Custom metadata to be added to documents
@@ -709,7 +664,7 @@ class NvidiaRAGIngestor():
             ingestor = get_nv_ingest_ingestor(
                 NV_INGEST_CLIENT_INSTANCE,
                 filepaths=filepaths,
-                collection_name=collection_name,
+                namespace_name=namespace_name,
                 split_options=split_options,
                 custom_metadata=custom_metadata
             )
@@ -745,7 +700,7 @@ class NvidiaRAGIngestor():
         self,
         failures: List[Dict[str, Any]],
         filepaths: List[str],
-        collection_name: str
+        namespace_name: str
     ) -> List[Dict[str, Any]]:
         """
         Get failed documents from the vector store
@@ -753,7 +708,7 @@ class NvidiaRAGIngestor():
         Arguments:
             - failures: List[Dict[str, Any]] - List of failures from NV-Ingest
             - filepaths: List[str] - List of filepaths that were processed
-            - collection_name: str - Name of the collection in the vector database
+            - namespace_name: str - Name of the namespace in the vector database
 
         Returns:
             - List[Dict[str, Any]] - List of failed documents with error details
@@ -792,15 +747,15 @@ class NvidiaRAGIngestor():
     async def __verify_metadata(
             self,
             custom_metadata: List[Dict[str, Any]],
-            collection_name: str,
+            namespace_name: str,
             filepaths: List[str]
         ) -> Tuple[bool, Dict[str, Any]]:
         """
-        Verify custom metadata against the collection's metadata schema
+        Verify custom metadata against the namespace's metadata schema
 
         Arguments:
             - custom_metadata: List[Dict[str, Any]] - Custom metadata to verify
-            - collection_name: str - Name of the collection in the vector database
+            - namespace_name: str - Name of the namespace in the vector database
             - filepaths: List[str] - List of filepaths being processed
 
         Returns:
@@ -844,14 +799,14 @@ class NvidiaRAGIngestor():
     async def __prepare_summary_documents(
         self,
         results: List[List[Dict[str, Union[str, dict]]]],
-        collection_name: str
+        namespace_name: str
     ) -> List[Document]:
         """
         Prepare summary documents for ingestion
 
         Arguments:
             - results: List[List[Dict[str, Union[str, dict]]]] - Results from NV-Ingest
-            - collection_name: str - Name of the collection in the vector database
+            - namespace_name: str - Name of the namespace in the vector database
 
         Returns:
             - List[Document] - List of documents prepared for summary generation
@@ -864,7 +819,7 @@ class NvidiaRAGIngestor():
                     content = result_element.get("content", "")
                     if content:
                         metadata = self.__prepare_metadata(result_element)
-                        metadata["collection_name"] = collection_name
+                        metadata["namespace_name"] = namespace_name
                         metadata["summary_type"] = "document"
                         
                         document = Document(
@@ -1015,7 +970,7 @@ class NvidiaRAGIngestor():
                         # Upload to MinIO
                         MINIO_OPERATOR.put_payload(
                             payload=payload,
-                            collection_prefix=document.metadata.get("collection_name", "default")
+                            namespace_prefix=document.metadata.get("namespace_name", "default")
                         )
                         
                         logger.debug(f"Document summary for {file_name} ingested to minio")

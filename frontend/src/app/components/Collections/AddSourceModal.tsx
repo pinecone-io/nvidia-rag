@@ -18,13 +18,13 @@
 import { useState, useEffect } from "react";
 import { useApp } from "../../context/AppContext";
 import Modal from "../Modal/Modal";
-import { UIMetadataField } from "@/types/collections";
+import { UIMetadataField } from "@/types/namespaces";
 import MetadataSchemaEditor from "../RightSidebar/MetadataSchemaEditor";
 
 interface AddSourceModalProps {
   isOpen: boolean;
   onClose: () => void;
-  collectionName: string;
+  namespaceName: string;
   onDocumentsUpdate: () => void;
 }
 
@@ -49,37 +49,37 @@ interface TaskResult {
 export default function AddSourceModal({
   isOpen,
   onClose,
-  collectionName,
+  namespaceName,
   onDocumentsUpdate,
 }: AddSourceModalProps) {
-  const { collections, setCollections, addPendingTask, pendingTasks, removePendingTask } = useApp();
+  const { namespaces, setNamespaces, addPendingTask, pendingTasks, removePendingTask } = useApp();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [fileMetadata, setFileMetadata] = useState<Record<string, Record<string, string>>>({});
-  const [selectedCollection, setSelectedCollection] = useState(collectionName);
+  const [selectedNamespace, setSelectedNamespace] = useState(namespaceName);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDocumentUpload, setShowDocumentUpload] = useState(true);
   const [metadataSchema, setMetadataSchema] = useState<UIMetadataField[]>([]);
 
-  const currentCollection = collections.find(c => c.collection_name === selectedCollection);
+  const currentNamespace = namespaces.find(c => c.namespace_name === selectedNamespace);
   
   // Add state to track which file lists are expanded
   const [expandedLists, setExpandedLists] = useState<{[key: string]: boolean}>({});
   
-  // Get all tasks for the current collection
-  const collectionTasks = pendingTasks.filter(
-    task => task.collection_name === selectedCollection
+  // Get all tasks for the current namespace
+  const namespaceTasks = pendingTasks.filter(
+    task => task.namespace_name === selectedNamespace
   ).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   useEffect(() => {
-    setSelectedCollection(collectionName);
-  }, [collectionName]);
+    setSelectedNamespace(namespaceName);
+  }, [namespaceName]);
 
   useEffect(() => {
-    if (isOpen && currentCollection?.metadata_schema) {
-      setMetadataSchema(currentCollection.metadata_schema);
+    if (isOpen && currentNamespace?.metadata_schema) {
+      setMetadataSchema(currentNamespace.metadata_schema);
     }
-  }, [isOpen, collectionName, selectedCollection]);
+  }, [isOpen, namespaceName, selectedNamespace]);
 
   // Reset state when modal opens/closes
   useEffect(() => {
@@ -112,10 +112,10 @@ export default function AddSourceModal({
   }, [selectedFiles]);
 
   // Function to fetch existing documents and check for duplicates
-  const checkForDuplicates = async (files: File[], collection: string) => {
+  const checkForDuplicates = async (files: File[], namespace: string) => {
     try {
       const response = await fetch(
-        `/api/documents?collection_name=${encodeURIComponent(collection)}`
+        `/api/documents?namespace_name=${encodeURIComponent(namespace)}`
       );
 
       if (!response.ok) {
@@ -161,7 +161,7 @@ export default function AddSourceModal({
   };
 
   const handleReset = () => {
-    setSelectedCollection(collectionName);
+    setSelectedNamespace(namespaceName);
     setSelectedFiles([]);
     setError(null);
   };
@@ -184,16 +184,16 @@ export default function AddSourceModal({
 
   const handleSubmit = async () => {
     try {
-      // 1. Check for duplicate files in the collection
+      // 1. Check for duplicate files in the namespace
       const duplicates = await checkForDuplicates(
         selectedFiles,
-        selectedCollection
+        selectedNamespace
       );
 
       if (duplicates.length > 0) {
         const duplicateNames = duplicates.map((file) => file.name).join(", ");
         setError(
-          `The following files already exist in this collection: ${duplicateNames}`
+          `The following files already exist in this namespace: ${duplicateNames}`
         );
         return;
       }
@@ -201,7 +201,7 @@ export default function AddSourceModal({
       setIsLoading(true);
       setError(null);
 
-      // 2. Prepare and upload documents to the collection
+      // 2. Prepare and upload documents to the namespace
       const formData = new FormData();
       selectedFiles.forEach((file) => {
         formData.append("documents", file);
@@ -209,7 +209,7 @@ export default function AddSourceModal({
 
       // Add metadata as JSON string with blocking=false
       const metadata = {
-        collection_name: selectedCollection,
+        namespace_name: selectedNamespace,
         blocking: false,
         custom_metadata: selectedFiles.map(file => {
           const rawMetadata = fileMetadata[file.name] || {};
@@ -244,7 +244,7 @@ export default function AddSourceModal({
         
         addPendingTask({
           id: responseData.task_id,
-          collection_name: selectedCollection,
+          namespace_name: selectedNamespace,
           state: "PENDING",
           created_at: new Date().toISOString(),
           documents: documentNames
@@ -253,20 +253,20 @@ export default function AddSourceModal({
         console.log(`Added task ${responseData.task_id} to pending tasks`);
       }
 
-      // 3. Update the collections list in the UI
-      const getCollectionsResponse = await fetch("/api/collections");
-      if (!getCollectionsResponse.ok) {
-        throw new Error("Failed to fetch updated collections");
+      // 3. Update the namespaces list in the UI
+      const getNamespacesResponse = await fetch("/api/namespaces");
+      if (!getNamespacesResponse.ok) {
+        throw new Error("Failed to fetch updated namespaces");
       }
 
-      const { collections: updatedCollections } =
-        await getCollectionsResponse.json();
-      setCollections(
-        updatedCollections.map((collection: any) => ({
-          collection_name: collection.collection_name,
-          document_count: collection.num_entities,
-          index_count: collection.num_entities,
-          metadata_schema: collection.metadata_schema ?? [],
+      const { namespaces: updatedNamespaces } =
+        await getNamespacesResponse.json();
+      setNamespaces(
+        updatedNamespaces.map((namespace: any) => ({
+          namespace_name: namespace.namespace_name,
+          document_count: namespace.num_entities,
+          index_count: namespace.num_entities,
+          metadata_schema: namespace.metadata_schema ?? [],
         }))
       );
 
@@ -288,38 +288,38 @@ export default function AddSourceModal({
   const modalDescription =
     "Upload a collection of source files to provide the model with relevant information for more tailored responses (e.g., marketing plans, research notes, meeting transcripts, sales documents).";
 
-  const collectionSelector = (
+  const namespaceSelector = (
     <div className="mb-4">
-      <label className="mb-2 block text-sm font-medium">Collection</label>
+      <label className="mb-2 block text-sm font-medium">Namespace</label>
       <select
-        value={selectedCollection}
+        value={selectedNamespace}
         onChange={(e) => {
-          setSelectedCollection(e.target.value);
+          setSelectedNamespace(e.target.value);
         }}
         className="w-full rounded-md bg-neutral-800 px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[var(--nv-green)]"
         disabled={isLoading}
       >
-        {collections.map((collection) => (
+        {namespaces.map((namespace) => (
           <option
-            key={collection.collection_name}
-            value={collection.collection_name}
+            key={namespace.namespace_name}
+            value={namespace.namespace_name}
           >
-            {collection.collection_name}
+            {namespace.namespace_name}
           </option>
         ))}
       </select>
     </div>
   );
 
-  // Render all tasks for this collection
+  // Render all tasks for this namespace
   const renderTaskStatuses = () => {
-    if (collectionTasks.length === 0) return null;
+    if (namespaceTasks.length === 0) return null;
     
     return (
       <div className="mb-6 mt-3 space-y-3">
         <h3 className="text-sm font-medium">Processing Status</h3>
         <div className="max-h-[min(300px,40vh)] overflow-y-auto pr-1 custom-scrollbar">
-          {collectionTasks.map(task => (
+          {namespaceTasks.map(task => (
             <div key={task.id} className="mb-3 overflow-hidden rounded-md border border-neutral-700 bg-neutral-900 p-3">
               {/* Status Header */}
               <div className="mb-3 flex items-center justify-between">
@@ -621,7 +621,7 @@ export default function AddSourceModal({
       fileInputId="sourceFileInput"
       customContent={
         <>
-          {collectionSelector}
+          {namespaceSelector}
           <MetadataSchemaEditor
             allowNewField={false}
             schema={metadataSchema ?? []}

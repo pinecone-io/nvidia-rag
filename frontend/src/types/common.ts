@@ -31,8 +31,7 @@ export interface BaseResponse {
 }
 
 export interface VDBConfig {
-  collection_name?: string;
-  vdb_endpoint?: string;
+  namespace_name?: string;
 }
 
 export interface ExtractionOptions {
