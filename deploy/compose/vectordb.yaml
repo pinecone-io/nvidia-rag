@@ -3,7 +3,7 @@ services:
   # Milvus can be made GPU accelerated by uncommenting the lines as specified below
   milvus:
     container_name: milvus-standalone
-    image: milvusdb/milvus:v2.5.3-gpu # milvusdb/milvus:v2.5.3 for CPU
+    image: milvusdb/milvus:${MILVUS_VERSION:-v2.5.3-gpu} # milvusdb/milvus:v2.5.3 for CPU
     command: ["milvus", "run", "standalone"]
     environment:
       ETCD_ENDPOINTS: etcd:2379
@@ -34,6 +34,7 @@ services:
               capabilities: ["gpu"]
               # count: ${INFERENCE_GPU_COUNT:-all}
               device_ids: ['${VECTORSTORE_GPU_DEVICE_ID:-0}']
+    profiles: ["", "milvus"]
 
   etcd:
     container_name: milvus-etcd
@@ -51,6 +52,7 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    profiles: ["", "milvus"]
 
   minio:
     container_name: milvus-minio
@@ -69,6 +71,31 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    profiles: ["", "milvus", "elasticsearch"]
+
+  elasticsearch:
+    container_name: elasticsearch
+    image: "docker.elastic.co/elasticsearch/elasticsearch:9.0.3"
+    ports:
+      - 9200:9200
+    volumes:
+      # Run "sudo chown -R 1000:1000 deploy/compose/volumes/elasticsearch/" to fix permissions
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/elasticsearch:/usr/share/elasticsearch/data
+    restart: on-failure
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms1024m -Xmx1024m"
+      - xpack.security.enabled=false
+      - xpack.license.self_generated.type=basic
+      - network.host=0.0.0.0
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    hostname: elasticsearch
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-f", "http://localhost:9200/_cat/health"]
+      interval: 10s
+      timeout: 1s
+      retries: 10
+    profiles: ["elasticsearch"]
 
 networks:
   default:

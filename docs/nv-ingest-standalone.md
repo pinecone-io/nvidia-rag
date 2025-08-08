@@ -103,7 +103,7 @@ ingestor = ingestor.extract(
                 extract_charts=True,
                 extract_images=False,
                 text_depth="page",
-                paddle_output_format="markdown"
+                table_output_format="markdown"
             )
 ingestor = ingestor.split(
                 tokenizer="intfloat/e5-large-unsupervised",

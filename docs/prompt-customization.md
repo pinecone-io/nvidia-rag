@@ -59,6 +59,22 @@ The `prompt.yaml` file contains a set of prompt templates used throughout the RA
 - **Purpose:** Decides whether a VLM response should be included in the final prompt for the LLM.
 - **Usage:** Evaluates the relevance and usefulness of VLM responses. Used in [the VLM pipeline for response filtering](./vlm.md) if enabled.
 
+### 12. `query_decomposition_multiquery_prompt`
+- **Purpose:** Breaks down complex questions into simpler, self-contained subqueries.
+- **Usage:** Decomposes complex questions into numbered, independent subqueries. Returns original query unchanged if already simple. Used in the [query decomposition pipeline](./query_decomposition.md).
+
+### 13. `query_decompositions_query_rewriter_prompt`
+- **Purpose:** Rewrites subsequent sub-queries using previously answered sub-query results for better contextual retrieval.
+- **Usage:** Rewrites current sub-query using previous sub-query answers to make it more contextually aware for better document retrieval. Used in the [query decomposition pipeline](./query_decomposition.md).
+
+### 14. `query_decomposition_followup_question_prompt`
+- **Purpose:** Identifies missing information and generates follow-up questions when needed.
+- **Usage:** Generates a single follow-up question if information is missing, or returns empty string if complete. Used in the [query decomposition pipeline](./query_decomposition.md).
+
+### 15. `query_decomposition_final_response_prompt`
+- **Purpose:** Generates the final response using conversation history and retrieved context.
+- **Usage:** Generates final answers as "Envie" using only provided context, with strict grounding rules and no external knowledge. Used in the [query decomposition pipeline](./query_decomposition.md).
+
 ---
 
 ## Overriding Existing Templates in `prompt.yaml`

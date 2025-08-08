@@ -31,19 +31,19 @@ This document describes the configurable endpoints used by the RAG server and it
 - **APP_RANKING_MODELNAME**: Name of the ranking model (default: "nvidia/llama-3.2-nv-rerankqa-1b-v2")
 
 ### Reflection Model
-- **REFLECTION_LLM_SERVERURL**: URL for the reflection LLM service (default: "")
-- **REFLECTION_LLM**: Name of the reflection model (default: "mistralai/mixtral-8x22b-instruct-v0.1")
+- **REFLECTION_LLM_SERVERURL**: URL for the reflection LLM service (default: "nim-llm:8000")
+- **REFLECTION_LLM**: Name of the reflection model (default: "nvidia/llama-3.3-nemotron-super-49b-v1")
 
 ## Frontend Endpoints
 
 ### API Endpoints
-- **NEXT_PUBLIC_CHAT_BASE_URL**: Base URL for chat API endpoints (default: "http://rag-server:8081/v1")
-- **NEXT_PUBLIC_VDB_BASE_URL**: Base URL for vector database API endpoints (default: "http://ingestor-server:8082/v1")
+- **VITE_API_CHAT_URL**: Base URL for chat API endpoints (default: "http://rag-server:8081/v1")
+- **VITE_MODEL_NAME**: Base URL for vector database API endpoints (default: "http://ingestor-server:8082/v1")
 
 ### Model Configuration
 - **NEXT_PUBLIC_MODEL_NAME**: Name of the LLM model used in the frontend (default: "meta/llama-3.1-8b-instruct")
-- **NEXT_PUBLIC_EMBEDDING_MODEL**: Name of the embedding model used in the frontend (default: "nvidia/llama-3.2-nv-embedqa-1b-v2")
-- **NEXT_PUBLIC_RERANKER_MODEL**: Name of the reranker model used in the frontend (default: "nvidia/llama-3.2-nv-rerankqa-1b-v2")
+- **VITE_EMBEDDING_MODEL**: Name of the embedding model used in the frontend (default: "nvidia/llama-3.2-nv-embedqa-1b-v2")
+- **VITE_RERANKER_MODEL**: Name of the reranker model used in the frontend (default: "nvidia/llama-3.2-nv-rerankqa-1b-v2")
 
 ## Monitoring and Tracing Endpoints
 

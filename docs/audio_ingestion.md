@@ -92,7 +92,7 @@ If you're using Helm for deployment, follow these steps to enable audio ingestio
 3. Apply the updated Helm chart by running the following code.
 
    ```bash
-   helm upgrade --install rag -n rag https://helm.ngc.nvidia.com/nvidia/blueprint/charts/nvidia-blueprint-rag-v2.2.0.tgz \
+   helm upgrade --install rag -n rag https://helm.ngc.nvidia.com/nvstaging/blueprint/charts/nvidia-blueprint-rag-v2.2.0.tgz \
    --username '$oauthtoken' \
    --password "${NGC_API_KEY}" \
    --set imagePullSecret.password=$NGC_API_KEY \
@@ -119,10 +119,14 @@ If you're using Helm for deployment, follow these steps to enable audio ingestio
 > [!Important]
 > When using Helm deployment, the Riva NIM service requires an additional H100 or B200 GPU making the total GPU requirement to 9xH100 without MIG slicing.
 
-## Limitations
+## Audio Segmentation:
 
-When ingesting audio files, please note the following limitations:
+The `APP_NVINGEST_SEGMENTAUDIO` environment variable controls whether audio segmentation is enabled during the ingestion process.
 
-- Audio segmentation is not supported. Each audio file is processed as a single unit.
-- Audio ingestion is not recommended for larger files as each audio file transcript forms a single chunk. For optimal performance, it is recommended to use audio files with less than 2 minutes duration each. Large audio file transcripts may exceed the generation LLM context window limits.
-- The chunk size and overlap settings in the ingestion API's `split_options` parameter do not affect audio file processing.
+When set to `True`, NV-Ingest will segment audio files based on commas and other punctuation marks, resulting in more granular audio chunks. This can improve downstream processing and retrieval accuracy for audio content. Note that splitting on captions will occur regardless of this setting; enabling `APP_NVINGEST_SEGMENTAUDIO` simply adds additional segmentation based on punctuation.
+
+To enable audio segmentation, add the following export command to your environment configuration:
+
+```bash
+export APP_NVINGEST_SEGMENTAUDIO=True
+```

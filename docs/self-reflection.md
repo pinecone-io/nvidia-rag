@@ -24,11 +24,11 @@ ENABLE_REFLECTION=true
 MAX_REFLECTION_LOOP=3                    # Maximum number of refinement attempts (default: 3)
 CONTEXT_RELEVANCE_THRESHOLD=1            # Minimum relevance score 0-2 (default: 1)
 RESPONSE_GROUNDEDNESS_THRESHOLD=1        # Minimum groundedness score 0-2 (default: 1)
-REFLECTION_LLM="mistralai/mixtral-8x22b-instruct-v0.1"  # Model for reflection (default)
-REFLECTION_LLM_SERVERURL="nim-llm-mixtral-8x22b:8000"  # Default on-premises endpoint for reflection LLM
+REFLECTION_LLM="nvidia/llama-3.3-nemotron-super-49b-v1"  # Model for reflection (default)
+REFLECTION_LLM_SERVERURL="nim-llm:8000"  # Default on-premises endpoint for reflection LLM
 
 # GPU device assignment for reflection service
-REFLECTION_MS_GPU_ID="0,1,2,3,4,5,6,7" # Comma-separated GPU device IDs for 8-GPU deployment
+REFLECTION_MS_GPU_ID="1" # Comma-separated GPU device IDs for 8-GPU deployment
 ```
 
 The reflection feature supports multiple deployment options:
@@ -41,10 +41,7 @@ The reflection feature supports multiple deployment options:
 
 2. Verify you have sufficient GPU resources:
    - **Required**: 8x A100 80GB or H100 80GB GPUs for optimal latency-optimized deployment
-   - For detailed GPU requirements and supported model configurations, refer to the [NVIDIA NIM documentation](https://docs.nvidia.com/nim/large-language-models/latest/supported-models.html#mixtral-8x22b-instruct-v0-1).
-
-   [!NOTE]
-   The Mixtral 8x22B Instruct model is not supported on NVIDIA B200 GPUs. Relection will not function on B200 systems with this model.
+   - For detailed GPU requirements and supported model configurations, refer to the [NVIDIA NIM documentation](https://docs.nvidia.com/nim/large-language-models/latest/supported-models.html).
 
 ### Deployment Steps
 
@@ -69,16 +66,16 @@ The reflection feature supports multiple deployment options:
    export ENABLE_REFLECTION=true
 
    # Specify GPU devices to use (for 8-GPU deployment)
-   export REFLECTION_MS_GPU_ID="0,1,2,3,4,5,6,7"
+   export REFLECTION_MS_GPU_ID="1"
    ```
 
-4. Start the Mixtral 8x22B model service:
+4. Start the llama-3.3-nemotron-super-49b model service:
 
    ```bash
-    USERID=$(id -u) docker compose -f deploy/compose/nims.yaml --profile mixtral-8x22b up -d
+    USERID=$(id -u) docker compose -f deploy/compose/nims.yaml --profile nim-llm up -d
    ```
 
-5. Wait for the Mixtral service to become healthy (this may take up to 30 minutes on first run as the model is downloaded and cached):
+5. Wait for the nim-llm service to become healthy (this may take up to 30 minutes on first run as the model is downloaded and cached):
 
    ```bash
    watch -n 2 'docker ps --format "table {{.Names}}\t{{.Status}}"'
@@ -87,7 +84,7 @@ The reflection feature supports multiple deployment options:
    Expected output when ready:
    ```
    NAMES                    STATUS
-   nim-llm-mixtral-8x22b    Up XX minutes (healthy)
+   nim-llm    Up XX minutes (healthy)
    ```
 
 6. Start the RAG server with reflection enabled:
@@ -130,10 +127,10 @@ If you don't have sufficient GPU resources for on-premises deployment, you can u
    export ENABLE_REFLECTION=true
 
    # Set empty server URL to use NVIDIA hosted API
-   export REFLECTION_LLM_SERVERURL=""
+   export REFLECTION_LLM_SERVERURL="nim-llm:8000"
 
    # Choose the reflection model (options below)
-   export REFLECTION_LLM="mistralai/mixtral-8x22b-instruct-v0.1"  # Default option
+   export REFLECTION_LLM="nvidia/llama-3.3-nemotron-super-49b-v1"  # Default option
    # export REFLECTION_LLM="meta/llama-3.1-405b-instruct"  # Alternative option
    ```
 
@@ -162,8 +159,7 @@ You can enable self-reflection through Helm when you deploy the RAG Blueprint.
 ### Prerequisites
 
 - Only on-premises reflection deployment is supported in Helm
-- Requires 8 additional GPUs for the Mixtral model service
-- The model used is: `mistralai/mixtral-8x22b-instruct-v0.1`
+- The model used is: `nvidia/llama-3.3-nemotron-super-49b-v1`
 
 ### Deploy the Reflection LLM in a Separate Namespace
 
@@ -195,9 +191,9 @@ You can enable self-reflection through Helm when you deploy the RAG Blueprint.
    service:
      name: "nim-llm"
    image:
-     repository: nvcr.io/nim/mistralai/mixtral-8x22b-instruct-v01
+     repository: nvcr.io/nim/nvidia/llama-3.3-nemotron-super-49b-v1
      pullPolicy: IfNotPresent
-     tag: "1.2.2"
+     tag: "1.8.5"
    resources:
      limits:
        nvidia.com/gpu: 8
@@ -205,7 +201,7 @@ You can enable self-reflection through Helm when you deploy the RAG Blueprint.
        nvidia.com/gpu: 8
    model:
      ngcAPISecret: ngc-api
-     name: "mistralai/mixtral-8x22b-instruct-v0.1"
+     name: "nvidia/llama-3.3-nemotron-super-49b-v1"
    persistence:
      enabled: true
    imagePullSecrets:
@@ -229,8 +225,8 @@ You can enable self-reflection through Helm when you deploy the RAG Blueprint.
    MAX_REFLECTION_LOOP: "3"
    CONTEXT_RELEVANCE_THRESHOLD: "1"
    RESPONSE_GROUNDEDNESS_THRESHOLD: "1"
-   REFLECTION_LLM: "mistralai/mixtral-8x22b-instruct-v0.1"
-   REFLECTION_LLM_SERVERURL: "nim-llm.reflection-nim:8000"
+   REFLECTION_LLM: "nvidia/llama-3.3-nemotron-super-49b-v1"
+   REFLECTION_LLM_SERVERURL: "nim-llm:8000"
    ```
 
 7. Deploy the RAG Helm chart:
@@ -238,7 +234,7 @@ You can enable self-reflection through Helm when you deploy the RAG Blueprint.
    Follow the steps from [Quick Start Helm Deployment](./quickstart.md#deploy-with-helm-chart) and run:
 
    ```bash
-   helm install rag -n rag https://helm.ngc.nvidia.com/nvidia/blueprint/charts/nvidia-blueprint-rag-v2.2.0.tgz \
+   helm install rag -n rag https://helm.ngc.nvidia.com/nvstaging/blueprint/charts/nvidia-blueprint-rag-v2.2.0.tgz \
      --username '$oauthtoken' \
      --password "${NGC_API_KEY}" \
      --set imagePullSecret.password=$NGC_API_KEY \
@@ -247,7 +243,7 @@ You can enable self-reflection through Helm when you deploy the RAG Blueprint.
    ```
 
 > [!NOTE]
-> Enabling Helm-based reflection support increases total GPU requirement to 16x H100 (8 for RAG and 8 for Mixtral model).
+> Enabling Helm-based reflection support increases total GPU requirement to 16x H100 (8 for RAG).
 
 ## How It Works
 

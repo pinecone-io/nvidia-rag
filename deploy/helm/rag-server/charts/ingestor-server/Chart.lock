@@ -2,5 +2,8 @@ dependencies:
 - name: nv-ingest
   repository: https://helm.ngc.nvidia.com/nvidia/nemo-microservices/
   version: 25.6.2
-digest: sha256:bdaf6ef9c6e1ebff863ddd5c8601bac300a38f5ec7a16f72c300b36ef37804e9
-generated: "2025-06-24T17:48:05.74472458+05:30"
+- name: elasticsearch
+  repository: https://helm.elastic.co
+  version: 8.5.1
+digest: sha256:1b55b441258c2f505f5d3fce316ce773dc9c96e9ad4f780cea7c36199d017bf8
+generated: "2025-08-04T16:23:07.658871728+05:30"

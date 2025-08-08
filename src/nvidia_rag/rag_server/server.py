@@ -25,22 +25,23 @@ import asyncio
 import logging
 import os
 import time
-import bleach
-from typing import Any, Dict, Optional, List, Generator
+from collections.abc import Generator
+from typing import Any
+
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field, constr, model_validator
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
-from pydantic import BaseModel, Field, constr, validator, field_validator, model_validator
 
-from nvidia_rag.rag_server.main import NvidiaRAG
-from nvidia_rag.rag_server.response_generator import Message, ChainResponse, Citations
+from nvidia_rag.rag_server.health import print_health_report
+from nvidia_rag.rag_server.main import APIError, NvidiaRAG
+from nvidia_rag.rag_server.response_generator import ChainResponse, Citations, Message
 from nvidia_rag.utils.common import get_config
-from nvidia_rag.rag_server.health import check_all_services_health, print_health_report
 
-logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
+logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
 
 settings = get_config()
@@ -58,15 +59,20 @@ tags_metadata = [
         "name": "Health APIs",
         "description": "APIs for checking and monitoring server liveliness and readiness.",
     },
-    {"name": "Retrieval APIs", "description": "APIs for retrieving document chunks for a query."},
+    {
+        "name": "Retrieval APIs",
+        "description": "APIs for retrieving document chunks for a query.",
+    },
     {"name": "RAG APIs", "description": "APIs for retrieval followed by generation."},
 ]
 
 # create the FastAPI server
-app = FastAPI(root_path=f"/v1", title="APIs for NVIDIA RAG Server",
+app = FastAPI(
+    root_path="/v1",
+    title="APIs for NVIDIA RAG Server",
     description="This API schema describes all the retriever endpoints exposed for NVIDIA RAG server Blueprint",
     version="1.0.0",
-        docs_url="/docs",
+    docs_url="/docs",
     redoc_url="/redoc",
     openapi_tags=tags_metadata,
 )
@@ -87,12 +93,30 @@ settings = get_config()
 metrics = None
 if settings.tracing.enabled:
     from .tracing import instrument
+
     metrics = instrument(app, settings)
+
+
+def validate_confidence_threshold_field(confidence_threshold: float) -> float:
+    """Shared validation logic for confidence_threshold."""
+    if confidence_threshold < 0.0:
+        raise ValueError(
+            f"confidence_threshold must be >= 0.0, got {confidence_threshold}. "
+            "The confidence threshold represents the minimum relevance score required for documents to be included."
+        )
+    if confidence_threshold > 1.0:
+        raise ValueError(
+            f"confidence_threshold must be <= 1.0, got {confidence_threshold}. "
+            "The confidence threshold represents the minimum relevance score required for documents to be included. "
+            "Values range from 0.0 (no filtering) to 1.0 (only perfect matches)."
+        )
+    return confidence_threshold
+
 
 class Prompt(BaseModel):
     """Definition of the Prompt API data type."""
 
-    messages: List[Message] = Field(
+    messages: list[Message] = Field(
         ...,
         description="A list of messages comprising the conversation so far. "
         "The roles of the messages must be alternating between user and assistant. "
@@ -100,7 +124,9 @@ class Prompt(BaseModel):
         "A message with the the system role is optional, and must be the very first message if it is present.",
         max_items=50000,
     )
-    use_knowledge_base: bool = Field(default=True, description="Whether to use a knowledge base")
+    use_knowledge_base: bool = Field(
+        default=True, description="Whether to use a knowledge base"
+    )
     temperature: float = Field(
         default_temperature,
         description="The sampling temperature to use for text generation. "
@@ -149,17 +175,17 @@ class Prompt(BaseModel):
     # )
     vdb_endpoint: str = Field(
         description="Endpoint url of the vector database server.",
-        default=settings.vector_store.url
+        default=settings.vector_store.url,
     )
     # TODO: Remove this field in the future
     collection_name: str = Field(
         description="Name of collection to be used for inference.",
         default="",
         max_length=4096,
-        pattern=r'[\s\S]*',
-        deprecated=True
+        pattern=r"[\s\S]*",
+        deprecated=True,
     )
-    collection_names: List[str] = Field(
+    collection_names: list[str] = Field(
         default=[settings.vector_store.default_collection_name],
         description="Name of the collections in the vector database.",
     )
@@ -183,11 +209,15 @@ class Prompt(BaseModel):
         description="Enable or disable VLM inference.",
         default=settings.enable_vlm_inference,
     )
+    enable_filter_generator: bool = Field(
+        description="Enable or disable automatic filter expression generation from natural language.",
+        default=settings.filter_expression_generator.enable_filter_generator,
+    )
     model: str = Field(
         description="Name of NIM LLM model to be used for inference.",
         default=settings.llm.model_name.strip('"'),
         max_length=4096,
-        pattern=r'[\s\S]*',
+        pattern=r"[\s\S]*",
     )
     llm_endpoint: str = Field(
         description="Endpoint URL for the llm model server.",
@@ -199,7 +229,7 @@ class Prompt(BaseModel):
         default=settings.embeddings.model_name.strip('"'),
         max_length=256,  # Reduced from 4096 as model names are typically short
     )
-    embedding_endpoint: Optional[str] = Field(
+    embedding_endpoint: str | None = Field(
         description="Endpoint URL for the embedding model server.",
         default=settings.embeddings.server_url.strip('"'),
         max_length=2048,  # URLs can be long, but 4096 is excessive
@@ -209,7 +239,7 @@ class Prompt(BaseModel):
         default=settings.ranking.model_name.strip('"'),
         max_length=256,
     )
-    reranker_endpoint: Optional[str] = Field(
+    reranker_endpoint: str | None = Field(
         description="Endpoint URL for the reranker model server.",
         default=settings.ranking.server_url.strip('"'),
         max_length=2048,
@@ -219,7 +249,7 @@ class Prompt(BaseModel):
         default=settings.vlm.model_name.strip('"'),
         max_length=256,
     )
-    vlm_endpoint: Optional[str] = Field(
+    vlm_endpoint: str | None = Field(
         description="Endpoint URL for the VLM model server.",
         default=settings.vlm.server_url.strip('"'),
         max_length=2048,
@@ -228,7 +258,7 @@ class Prompt(BaseModel):
     # seed: int = Field(42, description="If specified, our system will make a best effort to sample deterministically,
     #       such that repeated requests with the same seed and parameters should return the same result.")
     # bad: List[str] = Field(None, description="A word or list of words not to use. The words are case sensitive.")
-    stop: List[constr(max_length=256)] = Field(
+    stop: list[constr(max_length=256)] = Field(
         description="A string or a list of strings where the API will stop generating further tokens."
         "The returned text will not contain the stop sequence.",
         max_items=256,
@@ -238,12 +268,26 @@ class Prompt(BaseModel):
     #           Tokens will be sent as data-only server-sent events (SSE) as they become available
     #           (JSON responses are prefixed by data:), with the stream terminated by a data: [DONE] message.")
 
-    filter_expr: str = Field(
-        description="Filter expression to filter the retrieved documents from Milvus collection.",
-        default='',
-        max_length=4096,
-        pattern=r'[\s\S]*',
+    filter_expr: str | list[dict[str, Any]] = Field(
+        default="",
+        description="Filter expression to filter documents from vector database. "
+        "Can be a string or a list of dictionaries with filter conditions.",
     )
+    confidence_threshold: float = Field(
+        default=settings.default_confidence_threshold,
+        description="Minimum confidence score threshold for filtering chunks. "
+        "Only chunks with relevance scores >= this threshold will be included. "
+        "Range: 0.0 to 1.0. Default: 0.0 (no filtering). "
+        "Note: Requires enable_reranker=True to generate relevance scores.",
+        ge=0.0,
+        le=1.0,
+    )
+
+    @model_validator(mode="after")
+    def validate_confidence_threshold(cls, values):
+        """Custom validator for confidence_threshold to provide better error messages."""
+        validate_confidence_threshold_field(values.confidence_threshold)
+        return values
 
     # Validator to check chat message structure
     @model_validator(mode="after")
@@ -268,7 +312,7 @@ class DocumentSearch(BaseModel):
     query: str = Field(
         description="The content or keywords to search for within documents.",
         max_length=131072,
-        pattern=r'[\s\S]*',
+        pattern=r"[\s\S]*",
         default="Tell me something interesting",
     )
     reranker_top_k: int = Field(
@@ -287,7 +331,7 @@ class DocumentSearch(BaseModel):
     )
     vdb_endpoint: str = Field(
         description="Endpoint url of the vector database server.",
-        default=settings.vector_store.url
+        default=settings.vector_store.url,
     )
     # Reserved for future use
     # vdb_search_type: str = Field(
@@ -299,14 +343,14 @@ class DocumentSearch(BaseModel):
         description="Name of collection to be used for searching document.",
         default="",
         max_length=4096,
-        pattern=r'[\s\S]*',
-        deprecated=True
+        pattern=r"[\s\S]*",
+        deprecated=True,
     )
-    collection_names: List[str] = Field(
+    collection_names: list[str] = Field(
         default=[settings.vector_store.default_collection_name],
         description="Name of the collections in the vector database.",
     )
-    messages: List[Message] = Field(
+    messages: list[Message] = Field(
         default=[],
         description="A list of messages comprising the conversation so far. "
         "The roles of the messages must be alternating between user and assistant. "
@@ -321,6 +365,10 @@ class DocumentSearch(BaseModel):
     enable_reranker: bool = Field(
         description="Enable or disable reranking by the ranker model.",
         default=settings.ranking.enable_reranker,
+    )
+    enable_filter_generator: bool = Field(
+        description="Enable or disable automatic filter expression generation from natural language.",
+        default=settings.filter_expression_generator.enable_filter_generator,
     )
     embedding_model: str = Field(
         description="Name of the embedding model used for vectorization.",
@@ -337,18 +385,33 @@ class DocumentSearch(BaseModel):
         default=settings.ranking.model_name.strip('"'),
         max_length=256,
     )
-    reranker_endpoint: Optional[str] = Field(
+    reranker_endpoint: str | None = Field(
         description="Endpoint URL for the reranker model server.",
         default=settings.ranking.server_url.strip('"'),
         max_length=2048,
     )
 
-    filter_expr: str = Field(
+    filter_expr: str | list[dict[str, Any]] = Field(
         description="Filter expression to filter the retrieved documents from Milvus collection.",
-        default='',
-        max_length=4096,
-        pattern=r'[\s\S]*',
+        default="",
+        # max_length=4096,
+        # pattern=r"[\s\S]*",
     )
+    confidence_threshold: float = Field(
+        default=settings.default_confidence_threshold,
+        description="Minimum confidence score threshold for filtering chunks. "
+        "Only chunks with relevance scores >= this threshold will be included. "
+        "Range: 0.0 to 1.0. Default: 0.0 (no filtering). "
+        "Note: Requires enable_reranker=True to generate relevance scores.",
+        ge=0.0,
+        le=1.0,
+    )
+
+    @model_validator(mode="after")
+    def validate_confidence_threshold(cls, values):
+        """Custom validator for confidence_threshold to provide better error messages."""
+        validate_confidence_threshold_field(values.confidence_threshold)
+        return values
 
     # Validator to check chat message structure
     @model_validator(mode="after")
@@ -367,67 +430,66 @@ class DocumentSearch(BaseModel):
             raise ValueError("The last message must have role='user'")
         return values
 
+
 # Define the summary response model
 class SummaryResponse(BaseModel):
     """Represents a summary of a document."""
 
-    message: str = Field(
-        default="",
-        description="Message of the summary"
-    )
+    message: str = Field(default="", description="Message of the summary")
 
-    status: str = Field(
-        default="",
-        description="Status of the summary"
-    )
+    status: str = Field(default="", description="Status of the summary")
 
-    summary: str = Field(
-        default="",
-        description="Summary of the document"
-    )
-    file_name: str = Field(
-        default="",
-        description="Name of the document"
-    )
-    collection_name: str = Field(
-        default="",
-        description="Name of the collection"
-    )
+    summary: str = Field(default="", description="Summary of the document")
+    file_name: str = Field(default="", description="Name of the document")
+    collection_name: str = Field(default="", description="Name of the collection")
 
 
 # Define the service health models in server.py
 class BaseServiceHealthInfo(BaseModel):
     """Base health info model with common fields for all services"""
+
     service: str
     url: str
     status: str
     latency_ms: float = 0
-    error: Optional[str] = None
+    error: str | None = None
+
 
 class DatabaseHealthInfo(BaseServiceHealthInfo):
     """Health info specific to database services"""
-    collections: Optional[int] = None
+
+    collections: int | None = None
+
 
 class StorageHealthInfo(BaseServiceHealthInfo):
     """Health info specific to object storage services"""
-    buckets: Optional[int] = None
-    message: Optional[str] = None
+
+    buckets: int | None = None
+    message: str | None = None
+
 
 class NIMServiceHealthInfo(BaseServiceHealthInfo):
     """Health info specific to NIM services (LLM, embeddings, etc.)"""
-    message: Optional[str] = None
-    http_status: Optional[int] = None
+
+    message: str | None = None
+    http_status: int | None = None
+
 
 class HealthResponse(BaseModel):
     """Overall health response with specialized fields for each service type"""
-    message: str = Field(max_length=4096, pattern=r'[\s\S]*', default="Service is up.")
-    databases: List[DatabaseHealthInfo] = Field(default_factory=list)
-    object_storage: List[StorageHealthInfo] = Field(default_factory=list)
-    nim: List[NIMServiceHealthInfo] = Field(default_factory=list)  # Unified category for NIM services
+
+    message: str = Field(max_length=4096, pattern=r"[\s\S]*", default="Service is up.")
+    databases: list[DatabaseHealthInfo] = Field(default_factory=list)
+    object_storage: list[StorageHealthInfo] = Field(default_factory=list)
+    nim: list[NIMServiceHealthInfo] = Field(
+        default_factory=list
+    )  # Unified category for NIM services
 
 
 @app.exception_handler(RequestValidationError)
-async def request_validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+async def request_validation_exception_handler(
+    _: Request, exc: RequestValidationError
+) -> JSONResponse:
     return JSONResponse(
         status_code=HTTP_422_UNPROCESSABLE_ENTITY,
         content={"detail": jsonable_encoder(exc.errors(), exclude={"input"})},
@@ -443,9 +505,7 @@ async def request_validation_exception_handler(_: Request, exc: RequestValidatio
             "description": "Internal Server Error",
             "content": {
                 "application/json": {
-                    "example": {
-                        "detail": "Internal server error occurred"
-                    }
+                    "example": {"detail": "Internal server error occurred"}
                 }
             },
         }
@@ -488,8 +548,7 @@ async def health_check(check_dependencies: bool = False):
             # Process nim services
             if "nim" in health_results:
                 response.nim = [
-                    NIMServiceHealthInfo(**service)
-                    for service in health_results["nim"]
+                    NIMServiceHealthInfo(**service) for service in health_results["nim"]
                 ]
 
         except Exception as e:
@@ -509,9 +568,7 @@ async def health_check(check_dependencies: bool = False):
             "description": "Client Closed Request",
             "content": {
                 "application/json": {
-                    "example": {
-                        "detail": "The client cancelled the request"
-                    }
+                    "example": {"detail": "The client cancelled the request"}
                 }
             },
         },
@@ -519,12 +576,10 @@ async def health_check(check_dependencies: bool = False):
             "description": "Internal Server Error",
             "content": {
                 "application/json": {
-                    "example": {
-                        "detail": "Internal server error occurred"
-                    }
+                    "example": {"detail": "Internal server error occurred"}
                 }
             },
-        }
+        },
     },
 )
 async def generate_answer(request: Request, prompt: Prompt) -> StreamingResponse:
@@ -535,7 +590,9 @@ async def generate_answer(request: Request, prompt: Prompt) -> StreamingResponse
         metrics.update_api_requests(method=request.method, endpoint=request.url.path)
     try:
         # Convert messages to list of dicts
-        messages_dict = [{'role': msg.role, 'content': msg.content} for msg in prompt.messages]
+        messages_dict = [
+            {"role": msg.role, "content": msg.content} for msg in prompt.messages
+        ]
 
         # Get the streaming generator from NVIDIA_RAG.generate
         response_generator = NVIDIA_RAG.generate(
@@ -555,6 +612,7 @@ async def generate_answer(request: Request, prompt: Prompt) -> StreamingResponse
             enable_guardrails=prompt.enable_guardrails,
             enable_citations=prompt.enable_citations,
             enable_vlm_inference=prompt.enable_vlm_inference,
+            enable_filter_generator=prompt.enable_filter_generator,
             model=prompt.model,
             llm_endpoint=prompt.llm_endpoint,
             embedding_model=prompt.embedding_model,
@@ -564,24 +622,30 @@ async def generate_answer(request: Request, prompt: Prompt) -> StreamingResponse
             vlm_model=prompt.vlm_model,
             vlm_endpoint=prompt.vlm_endpoint,
             filter_expr=prompt.filter_expr,
+            confidence_threshold=prompt.confidence_threshold,
         )
 
         # Wrap the generator with TTFT calculation and buffering fixes
-        ttft_generator = optimized_streaming_wrapper(response_generator, generate_start_time)
+        ttft_generator = optimized_streaming_wrapper(
+            response_generator, generate_start_time
+        )
 
         # Return streaming response with proper headers to prevent buffering
-        return StreamingResponse(
-            ttft_generator,
-            media_type="text/event-stream"
-        )
+        return StreamingResponse(ttft_generator, media_type="text/event-stream")
 
     except asyncio.CancelledError as e:
         logger.warning(f"Request cancelled during response generation. {str(e)}")
-        return JSONResponse(content={"message": "Request was cancelled by the client."}, status_code=499)
+        return JSONResponse(
+            content={"message": "Request was cancelled by the client."}, status_code=499
+        )
 
     except Exception as e:
-        logger.error("Error from /generate endpoint. Error details: %s", e,
-                     exc_info=logger.getEffectiveLevel() <= logging.DEBUG)
+        logger.error(
+            "Error from /generate endpoint. Error details: %s",
+            e,
+            exc_info=logger.getEffectiveLevel() <= logging.DEBUG,
+        )
+
 
 # Alias function to /generate endpoint OpenAI API compatibility
 @app.post(
@@ -593,16 +657,14 @@ async def generate_answer(request: Request, prompt: Prompt) -> StreamingResponse
             "description": "Internal Server Error",
             "content": {
                 "application/json": {
-                    "example": {
-                        "detail": "Internal server error occurred"
-                    }
+                    "example": {"detail": "Internal server error occurred"}
                 }
             },
         }
     },
 )
 async def v1_chat_completions(request: Request, prompt: Prompt) -> StreamingResponse:
-    """ Just an alias function to /generate endpoint which is openai compatible """
+    """Just an alias function to /generate endpoint which is openai compatible"""
 
     response = await generate_answer(request, prompt)
     return response
@@ -617,9 +679,7 @@ async def v1_chat_completions(request: Request, prompt: Prompt) -> StreamingResp
             "description": "Client Closed Request",
             "content": {
                 "application/json": {
-                    "example": {
-                        "detail": "The client cancelled the request"
-                    }
+                    "example": {"detail": "The client cancelled the request"}
                 }
             },
         },
@@ -627,21 +687,23 @@ async def v1_chat_completions(request: Request, prompt: Prompt) -> StreamingResp
             "description": "Internal Server Error",
             "content": {
                 "application/json": {
-                    "example": {
-                        "detail": "Internal server error occurred"
-                    }
+                    "example": {"detail": "Internal server error occurred"}
                 }
             },
-        }
+        },
     },
 )
-async def document_search(request: Request, data: DocumentSearch) -> Dict[str, List[Dict[str, Any]]]:
+async def document_search(
+    request: Request, data: DocumentSearch
+) -> dict[str, list[dict[str, Any]]]:
     """Search for the most relevant documents for the given search parameters."""
 
     if metrics:
         metrics.update_api_requests(method=request.method, endpoint=request.url.path)
     try:
-        messages_dict = [{'role': msg.role, 'content': msg.content} for msg in data.messages]
+        messages_dict = [
+            {"role": msg.role, "content": msg.content} for msg in data.messages
+        ]
         return NVIDIA_RAG.search(
             query=data.query,
             messages=messages_dict,
@@ -652,20 +714,35 @@ async def document_search(request: Request, data: DocumentSearch) -> Dict[str, L
             vdb_endpoint=data.vdb_endpoint,
             enable_query_rewriting=data.enable_query_rewriting,
             enable_reranker=data.enable_reranker,
+            enable_filter_generator=data.enable_filter_generator,
             embedding_model=data.embedding_model,
             embedding_endpoint=data.embedding_endpoint,
             reranker_model=data.reranker_model,
             reranker_endpoint=data.reranker_endpoint,
             filter_expr=data.filter_expr,
+            confidence_threshold=data.confidence_threshold,
         )
 
     except asyncio.CancelledError as e:
         logger.warning(f"Request cancelled during document search. {str(e)}")
-        return JSONResponse(content={"message": "Request was cancelled by the client."}, status_code=499)
+        return JSONResponse(
+            content={"message": "Request was cancelled by the client."}, status_code=499
+        )
+    except APIError as e:
+        # Handle APIError with specific status codes
+        status_code = getattr(e, "code", 500)
+        logger.error("API Error from POST /search endpoint. Error details: %s", e)
+        return JSONResponse(content={"message": str(e)}, status_code=status_code)
     except Exception as e:
-        logger.error("Error from POST /search endpoint. Error details: %s", e,
-                     exc_info=logger.getEffectiveLevel() <= logging.DEBUG)
-        return JSONResponse(content={"message": "Error occurred while searching documents. " + str(e)}, status_code=500)
+        logger.error(
+            "Error from POST /search endpoint. Error details: %s",
+            e,
+            exc_info=logger.getEffectiveLevel() <= logging.DEBUG,
+        )
+        return JSONResponse(
+            content={"message": "Error occurred while searching documents. " + str(e)},
+            status_code=500,
+        )
 
 
 @app.get(
@@ -679,7 +756,7 @@ async def document_search(request: Request, data: DocumentSearch) -> Dict[str, L
                 "application/json": {
                     "example": {
                         "message": "Summary for example.pdf not found. Set wait=true to wait for generation.",
-                        "status": "pending"
+                        "status": "pending",
                     }
                 }
             },
@@ -690,7 +767,7 @@ async def document_search(request: Request, data: DocumentSearch) -> Dict[str, L
                 "application/json": {
                     "example": {
                         "message": "Timeout waiting for summary generation for example.pdf",
-                        "status": "timeout"
+                        "status": "timeout",
                     }
                 }
             },
@@ -699,9 +776,7 @@ async def document_search(request: Request, data: DocumentSearch) -> Dict[str, L
             "description": "Client Closed Request",
             "content": {
                 "application/json": {
-                    "example": {
-                        "detail": "The client cancelled the request"
-                    }
+                    "example": {"detail": "The client cancelled the request"}
                 }
             },
         },
@@ -711,11 +786,11 @@ async def document_search(request: Request, data: DocumentSearch) -> Dict[str, L
                 "application/json": {
                     "example": {
                         "message": "Error occurred while getting summary.",
-                        "error": "Internal server error details"
+                        "error": "Internal server error details",
                     }
                 }
             },
-        }
+        },
     },
 )
 async def get_summary(
@@ -723,7 +798,7 @@ async def get_summary(
     collection_name: str,
     file_name: str,
     blocking: bool = False,
-    timeout: int = 300
+    timeout: int = 300,
 ) -> JSONResponse:
     """
     Retrieve document summary from the collection.
@@ -751,7 +826,12 @@ async def get_summary(
     """
 
     try:
-        response = await NVIDIA_RAG.get_summary(collection_name=collection_name, file_name=file_name, blocking=blocking, timeout=timeout)
+        response = await NVIDIA_RAG.get_summary(
+            collection_name=collection_name,
+            file_name=file_name,
+            blocking=blocking,
+            timeout=timeout,
+        )
 
         if response.get("status") == "FAILED":
             return JSONResponse(content=response, status_code=404)
@@ -767,36 +847,33 @@ async def get_summary(
         return JSONResponse(
             content={
                 "message": "Error occurred while getting summary.",
-                "error": str(e)
+                "error": str(e),
             },
-            status_code=500
+            status_code=500,
         )
 
 
-async def optimized_streaming_wrapper(
-        generator: Generator,
-        start_time: float
-    ):
+async def optimized_streaming_wrapper(generator: Generator, start_time: float):
     """
     Optimized wrapper for streaming generator to calculate TTFT with minimal buffering.
-    
+
     Args:
         generator: The streaming generator from NVIDIA_RAG.generate()
         start_time: The timestamp when the request started
-        
+
     Yields:
         The same chunks as the original generator, but with proper flushing and timing
     """
     token_count = 0
-    
+
     async for chunk in generator:
         current_time = time.time()
         token_count += 1
-        
+
         if token_count == 1:
             ttft = (current_time - start_time) * 1000  # Convert to milliseconds
             logger.info("    == RAG Time to First Token (TTFT): %.2f ms ==", ttft)
-            
+
         # Yield the chunk immediately without additional processing
         yield chunk
 

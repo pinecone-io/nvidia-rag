@@ -57,14 +57,6 @@ These parameters allow fine-tuning RAG performance based on specific accuracy vs
   - ✅ May provide better retrieval accuracy for domain-specific content
   - ❌ May induce slightly higher latency for large number of documents; default setting is dense search.
 
-- **Vector Store Retriever Consistency Level**
-  - ✅ **Bounded** : Searches with tolerance for some data loss, providing better performance for most use cases. If you are using a pre-ingested knowledge base which is not frequently updated, then use this consistency level to achieve better latency at the cost of no accuracy drop.
-  - ✅ **Strong** : Waits for the latest data to be available before executing searches, ensuring highest accuracy. This is the recommended setting for continuous data ingestion pipelines, where retrieval time is within few minutes after ingestion is completed to achieve best accuracy.
-  - ✅ **Session**: Searches include all data inserted by the current client session
-  - Controlled via `APP_VECTORSTORE_CONSISTENCYLEVEL` environment variable. Default is "Strong".
-  - **Trade-off**: Use "Bounded" consistency level for better performance, and "Strong" to ensure highest accuracy
-  - **Reference**: [Milvus Consistency Level Documentation](https://milvus.io/docs/consistency.md)
-
 - **Enable NeMo Guardrails**
   - ✅ Applies input/output constraints for better safety and consistency
   - ❌ Significant increased processing overhead for additional LLM calls. It always needs additional GPUs to deploy the guardrails specific models on-prem.
@@ -102,6 +94,13 @@ These parameters allow fine-tuning RAG performance based on specific accuracy vs
   - ✅ PDFs are extracted at the page level by default. When PDF splitting is enabled, chunk-based splitting is performed after page-level extraction for more granular content segmentation. Recommended for PDFs with pages with more text content
   - ❌ This may increase number of chunks and slightly slow down ingestion process
   - Controlled by `APP_NVINGEST_ENABLEPDFSPLITTER` environment variable. Default value is `True`.
+
+- **Enable Audio Segmentation**
+  - ✅ Segments audio files based on commas and other punctuation marks for more granular audio chunks
+  - ✅ Improves downstream processing and retrieval accuracy for audio content
+  - ❌ May increase processing time during audio ingestion
+  - Controlled via `APP_NVINGEST_SEGMENTAUDIO` environment variable. Default is `False`.
+  - Enable with: `export APP_NVINGEST_SEGMENTAUDIO=True`
 
 ## Ingestion Batch Mode Optimization
 

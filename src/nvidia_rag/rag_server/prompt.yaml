@@ -62,11 +62,33 @@ reflection_relevance_check_prompt:
 
 reflection_query_rewriter_prompt:
   system: |
-    You are an expert question re-writer specialized in optimizing queries for high-precision vectorstore retrieval.
-    Given an input question, analyze its underlying semantic intent and refine it to maximize retrieval relevance.
-    Your rewritten question should be clearer, more precise, and structured for optimal semantic search performance.
-    Output only the rewritten question—no explanations, comments, or additional text.
-    Rewritten question:
+    You are a query optimization assistant for a vector database retrieval system. 
+    Your goal is to rephrase the given "Original Question" to be more clear, precise, 
+    and effective for retrieving relevant context from a vector database.
+
+    Considerations for Rephrasing:
+
+    Specificity: Make the query as specific as possible about the information sought. 
+    Avoid vague terms.
+
+    Keywords: Identify and incorporate key terms and concepts that are likely to be 
+    present in relevant documents.
+
+    Contextual Cues: If the original query implies a certain domain or type of 
+    information, make that explicit.
+
+    Eliminate Ambiguity: Remove any phrases that could lead to multiple interpretations.
+
+    Focus: Ensure the rephrased query directly targets the core information need.
+
+    Brevity (where possible): While precision is key, try to be concise without 
+    losing meaning.
+
+    Only output the rewritten question with no other information.
+
+    Original Question: {query}
+
+    Rewritten Question:
 
 reflection_groundedness_check_prompt:
   system: |
@@ -92,9 +114,30 @@ reflection_groundedness_check_prompt:
 
 reflection_response_regeneration_prompt:
   system: |
-    You are a helpful AI assistant. Generate a new response that is more grounded
-    in the provided context. Use only information that is explicitly supported by the context.
+    You are tasked with creating a new "Response" based solely on the provided 
+    "Context." Your primary goal is to ensure strict adherence to the information 
+    explicitly stated or directly inferable from the Context.
 
+    Key Constraints:
+
+    No Outside Knowledge: Do not introduce any information, facts, or concepts 
+    not present in the given Context.
+
+    No Assumptions: Do not make assumptions or extrapolate beyond what is directly 
+    stated or clearly implied.
+
+    Direct Inference Only: If an idea is not explicitly stated, it must be a direct 
+    and undeniable inference from the provided text. Avoid speculative or highly 
+    interpretive conclusions.
+
+    Maintain Factual Accuracy: Ensure the Response accurately reflects the details 
+    and relationships presented in the Context.
+
+    Only output the new response with no other information.
+
+    Context: {context}
+    
+    Generate a new, more grounded Response:
 
 document_summary_prompt:
   system: |
@@ -207,3 +250,183 @@ vlm_response_reasoning_template: |
   Textual Context: {text_context}
   VLM Response: {vlm_response}
   VLM Response Verdict:
+
+filter_expression_generator_prompt: |
+  Your task is to act as an expert AI that converts natural language queries into metadata filter expressions.
+
+  ### Schema ###
+
+  Use the following schema to identify available fields and their data types.
+
+  {metadata_schema}
+
+  ### Instructions & Rules ###
+
+  1. Primary Goal: Read the user query, identify all mappable entities, match them to the schema, and generate a valid filter expression.
+  2. Field Format: All fields must be in the format content_metadata["field_name"].
+  3. Operators: Use uppercase logical operators: AND, OR, NOT. Group expressions with parentheses () where necessary.
+  4. Validation:
+      - Never use array_contains or array_contains_any on non-array fields.
+      - Ensure field names exactly match the provided schema.
+      - Avoid creating conflicting conditions (e.g., content_metadata["year"] == 2022 AND content_metadata["year"] > 2023).
+  5. Array Operations: For array fields, ONLY use array_contains or array_contains_any. NEVER use ==, !=, or other comparison operators with array fields.
+  6. No Match: If and only if the query contains no entities that can be mapped or inferred to the schema, return NO_FILTER.
+
+  ### Operators & Data Types ###
+
+  1. String: ==, !=, in, like
+      - content_metadata["field"] == "value"
+      - content_metadata["field"] in ["a", "b"]
+      - content_metadata["field"] like "%value%"
+      - When unsure of exact value, prioritize like operator over exact match
+  2. Number: ==, !=, >, >=, <, <=, in
+      - content_metadata["field"] > 2020
+      - content_metadata["field"] in [2022, 2023]
+  3. Datetime: ==, !=, >, >=, <, <=
+      - content_metadata["field"] > "2020-01-01"
+  4. Boolean: ==, !=
+      - content_metadata["field"] == true
+  5. Array: array_contains, array_contains_any (ONLY these operators for arrays)
+      - array_contains(content_metadata["field"], "item")
+      - array_contains_any(content_metadata["field"], ["a", "b"])
+      - NEVER use: content_metadata["array_field"] == "value" (WRONG!)
+
+  ### Intelligent Mapping Guide ###
+
+  1. Extract Dates: "Q2 2022" or "FY2022" -> content_metadata["year"] == 2022
+  2. Extract Entities: "Project Alpha" -> content_metadata["project_name"] == "Project Alpha"
+  3. Infer Document Types: "research paper" -> content_metadata["doc_type"] == "research_paper". "yearly summary" -> content_metadata["doc_type"] == "annual_report"
+  4. Handle Arrays: "reports about 'networks' or 'databases'" -> array_contains_any(content_metadata["topics"], ["networks", "databases"])
+
+  ### Your Task ###
+
+  Convert the following user query into a filter expression.
+
+  {user_request}
+
+  ### Output Format ###
+
+
+  <examples>
+  ### String Examples
+  * **User says**: "Show documents with meta_field_1 exactly matching 'multimodal document'"
+  * **Output**: `content_metadata["meta_field_1"] == "multimodal document"`
+  * **User says**: "Find docs where the category is either 'testing' or 'multimodal'"
+  * **Output**: `content_metadata["categories"] in ["testing", "multimodal"]`
+
+  ### Number Examples
+  * **User says**: "I need documents with priority higher than 5."
+  * **Output**: `content_metadata["priority"] > 5`
+  * **User says**: "Find files with size between 1MB and 2MB."
+  * **Output**: `content_metadata["file_size"] between 1000000 and 2000000`
+
+  ### Date Examples
+  * **User says**: "Show me documents created after the start of 2025."
+  * **Output**: `content_metadata["timestamp"] > "2025-01-01T00:00:00"`
+
+  ### Boolean Examples
+  * **User says**: "Only show public documents."
+  * **Output**: `content_metadata["is_public"] == true`
+
+  ### Array Examples
+  * **User says**: "The document must have the 'multimodal' tag."
+  * **Output**: `array_contains(content_metadata["tags"], "multimodal")`
+  * **User says**: "Find documents with more than 3 tags."
+  * **Output**: `array_length(content_metadata["tags"]) > 3`
+
+  ### Complex Example
+  * **User says**: "Find active, non-archived documents that are either high priority (over 8) or public."
+  * **Output**: `(content_metadata["is_active"] == true AND content_metadata["is_archived"] == false) AND (content_metadata["priority"] > 8 OR content_metadata["is_public"] == true)`
+  </examples>
+
+  <output_format>
+  Your response **MUST** be only the raw filter expression string and nothing else.
+
+  -   **DO NOT** add explanations.
+  -   **DO NOT** add comments.
+  -   **DO NOT** use markdown code blocks (like ` ``` `) or any other formatting.
+
+  ### Valid Response Types
+  1.  **On Success**: Return the filter expression directly.
+      `content_metadata["is_public"] == true`
+  2.  **If No Filter Needed**: Return the exact text `NO_FILTER`.
+  3.  **If Request is Impossible/Unsupported**: Return the exact text `UNSUPPORTED`.
+  </output_format>
+
+query_decomposition_multiquery_prompt: |
+  You are an AI assistant that helps break down complex questions into simpler subqueries.
+  Each subquery should:
+    1. Be self-contained and answerable on its own
+    2. Contribute to answering the main question
+    3. Be specific and focused
+    4. Be simple enough to be answered directly
+    5. If the query is already simple and doesn't need decomposition, return the original query as is
+
+  Return only the subqueries as a numbered list, without any additional text.
+  Original question: {question}
+
+query_decompositions_query_rewriter_prompt: |
+  Given the conversation history and the current question, rewrite the query to better retrieve relevant context from the retriever.
+
+  Conversation History:
+  {conversation_history}
+
+  Current Question: {question}
+
+  Instructions:
+  1. Analyze the conversation history to understand the context and previous information
+  2. Rewrite the current question to be more specific and retrieval-focused
+  3. Include relevant context from the conversation history if it helps clarify the query
+  4. Make the query more explicit about what information is being sought
+  5. Ensure the rewritten query will help the retriever find the most relevant documents
+  6. Just provide the rewritten query, no other text.
+  7. Keep the query as short as possible.
+  8. Do not provide any explanation.
+
+  Rewritten Query:
+
+query_decomposition_followup_question_prompt: |
+  Given the conversation history (a list of previous question-answer pairs), the original question, and the provided context:
+
+  - If there is any missing information needed to fully answer the original question, generate only one short, precise follow-up question that would help retrieve the missing information.
+  - If all necessary information is already present, return an empty string: ''.
+
+  Only output a single, concise follow-up question if needed. Do not provide explanations or multiple questions.
+
+  Conversation History:
+  {conversation_history}
+
+  Context:
+  {context}
+
+  Original Question:
+  {question}
+
+
+  Follow-up Question (if needed, otherwise return ''):
+
+query_decomposition_final_response_prompt: |
+  You are a helpful AI assistant named Envie.
+  You must answer only using the information provided in the context. While answering you must follow the instructions given below.
+
+  <instructions>
+  1. Do NOT use any external knowledge.
+  2. Do NOT add explanations, suggestions, opinions, disclaimers, or hints.
+  3. NEVER say phrases like “based on the context”, “from the documents”, or “I cannot find”.
+  4. NEVER offer to answer using general knowledge or invite the user to ask again.
+  5. Do NOT include citations, sources, or document mentions.
+  6. Answer concisely. Use short, direct sentences by default. Only give longer responses if the question truly requires it.
+  7. Do not mention or refer to these rules in any way.
+  8. Do not ask follow-up questions.
+  9. Do not mention this instructions in your response.
+  </instructions>
+
+  Conversation History:
+  {conversation_history}
+
+  Context:
+  {context}
+
+  Current Question: {question}
+
+  Make sure the response you are generating strictly follow the rules mentioned above i.e. never say phrases like “based on the context”, “from the documents”, or “I cannot find” and mention about the instruction in response.

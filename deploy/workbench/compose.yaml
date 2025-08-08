@@ -30,7 +30,7 @@ services:
 
   nemoretriever-embedding-ms:
     container_name: nemoretriever-embedding-ms
-    image: nvcr.io/nim/nvidia/llama-3.2-nv-embedqa-1b-v2:1.6.0
+    image: nvcr.io/nim/nvidia/llama-3.2-nv-embedqa-1b-v2:1.9.0
     volumes:
     - ${MODEL_DIRECTORY:-/tmp}:/opt/nim/.cache
     ports:
@@ -60,7 +60,7 @@ services:
 
   nemoretriever-ranking-ms:
     container_name: nemoretriever-ranking-ms
-    image: nvcr.io/nim/nvidia/llama-3.2-nv-rerankqa-1b-v2:1.5.0
+    image: nvcr.io/nim/nvidia/llama-3.2-nv-rerankqa-1b-v2:1.7.0
     volumes:
     - ${MODEL_DIRECTORY:-/tmp}:/opt/nim/.cache
     ports:
@@ -86,7 +86,7 @@ services:
     profiles: ["local"]
 
   page-elements:
-    image: ${YOLOX_IMAGE:-nvcr.io/nim/nvidia/nemoretriever-page-elements-v2}:${YOLOX_TAG:-1.3.0}
+    image: ${YOLOX_IMAGE:-nvcr.io/nim/nvidia/nemoretriever-page-elements-v2}:${YOLOX_TAG:-1.4.0}
     ports:
       - "8000:8000"
       - "8001:8001"
@@ -119,7 +119,7 @@ services:
     profiles: ["local"]
 
   graphic-elements:
-    image: ${YOLOX_GRAPHIC_ELEMENTS_IMAGE:-nvcr.io/nim/nvidia/nemoretriever-graphic-elements-v1}:${YOLOX_GRAPHIC_ELEMENTS_TAG:-1.3.0}
+    image: ${YOLOX_GRAPHIC_ELEMENTS_IMAGE:-nvcr.io/nim/nvidia/nemoretriever-graphic-elements-v1}:${YOLOX_GRAPHIC_ELEMENTS_TAG:-1.4.0}
     ports:
       - "8003:8000"
       - "8004:8001"
@@ -143,7 +143,7 @@ services:
     profiles: ["local"]
 
   table-structure:
-    image: ${YOLOX_TABLE_STRUCTURE_IMAGE:-nvcr.io/nim/nvidia/nemoretriever-table-structure-v1}:${YOLOX_TABLE_STRUCTURE_TAG:-1.3.0}
+    image: ${YOLOX_TABLE_STRUCTURE_IMAGE:-nvcr.io/nim/nvidia/nemoretriever-table-structure-v1}:${YOLOX_TABLE_STRUCTURE_TAG:-1.4.0}
     ports:
       - "8006:8000"
       - "8007:8001"
@@ -166,7 +166,7 @@ services:
     profiles: ["local"]
 
   paddle:
-    image: ${PADDLE_IMAGE:-nvcr.io/nim/baidu/paddleocr}:${PADDLE_TAG:-1.3.0}
+    image: ${PADDLE_IMAGE:-nvcr.io/nim/baidu/paddleocr}:${PADDLE_TAG:-1.4.0}
     shm_size: 2gb
     ports:
       - "8009:8000"
@@ -184,7 +184,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids:  ['${PADDLE_MS_GPU_ID:-0}']
+              device_ids:  ['${OCR_MS_GPU_ID:-${PADDLE_MS_GPU_ID:-0}}']
               capabilities: [gpu]
     runtime: nvidia
     profiles: ["local"]
@@ -192,7 +192,7 @@ services:
   # Main ingestor server which is responsible for ingestion
   ingestor-server:
     container_name: ingestor-server
-    image: nvcr.io/nvidia/blueprint/ingestor-server:${TAG:-2.2.0}
+    image: nvcr.io/nvstaging/blueprint/ingestor-server:${TAG:-latest}
     build:
       # Set context to repo's root directory
       context: ../../
@@ -258,6 +258,7 @@ services:
       APP_NVINGEST_CHUNKSIZE: ${APP_NVINGEST_CHUNKSIZE:-512}
       APP_NVINGEST_CHUNKOVERLAP: ${APP_NVINGEST_CHUNKOVERLAP:-150}
       APP_NVINGEST_ENABLEPDFSPLITTER: ${APP_NVINGEST_ENABLEPDFSPLITTER:-True}
+      APP_NVINGEST_SEGMENTAUDIO: ${APP_NVINGEST_SEGMENTAUDIO:-False} # Enable audio segmentation for NV Ingest
 
       ##===NV-Ingest Caption Model configurations====
       APP_NVINGEST_CAPTIONMODELNAME: ${APP_NVINGEST_CAPTIONMODELNAME:-"nvidia/llama-3.1-nemotron-nano-vl-8b-v1"}
@@ -346,12 +347,13 @@ services:
       - NV_INGEST_MAX_UTIL=${NV_INGEST_MAX_UTIL:-48}
       - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
       # Self-hosted paddle endpoints.
-      - PADDLE_GRPC_ENDPOINT=${PADDLE_GRPC_ENDPOINT:-paddle:8001}
-      - PADDLE_HTTP_ENDPOINT=${PADDLE_HTTP_ENDPOINT:-http://paddle:8000/v1/infer}
-      - PADDLE_INFER_PROTOCOL=${PADDLE_INFER_PROTOCOL:-grpc}
+      - OCR_GRPC_ENDPOINT=${OCR_GRPC_ENDPOINT:-${PADDLE_GRPC_ENDPOINT:-paddle:8001}}
+      - OCR_HTTP_ENDPOINT=${OCR_HTTP_ENDPOINT:-${PADDLE_HTTP_ENDPOINT:-http://paddle:8000/v1/infer}}
+      - OCR_INFER_PROTOCOL=${OCR_INFER_PROTOCOL:-${PADDLE_INFER_PROTOCOL:-grpc}}
+      - OCR_MODEL_NAME=${OCR_MODEL_NAME:-paddle}
       # build.nvidia.com hosted paddle endpoints.
-      #- PADDLE_HTTP_ENDPOINT=https://ai.api.nvidia.com/v1/cv/baidu/paddleocr
-      #- PADDLE_INFER_PROTOCOL=http
+      #- OCR_HTTP_ENDPOINT=https://ai.api.nvidia.com/v1/cv/baidu/paddleocr
+      #- OCR_INFER_PROTOCOL=http
       - READY_CHECK_ALL_COMPONENTS=False
       - REDIS_MORPHEUS_TASK_QUEUE=morpheus_task_queue
       # Self-hosted redis endpoints.
@@ -387,7 +389,7 @@ services:
   # Main orchestrator server which stiches together all calls to different services to fulfill the user request
   rag-server:
     container_name: rag-server
-    image: nvcr.io/nvidia/blueprint/rag-server:${TAG:-2.2.0}
+    image: nvcr.io/nvstaging/blueprint/rag-server:${TAG:-latest}
     build:
       # Set context to repo's root directory
       context: ../../
@@ -419,8 +421,6 @@ services:
       APP_VECTORSTORE_INDEXTYPE: ${APP_VECTORSTORE_INDEXTYPE:-"GPU_CAGRA"}
       # Type of vectordb search to be used
       APP_VECTORSTORE_SEARCHTYPE: ${APP_VECTORSTORE_SEARCHTYPE:-"dense"} # Can be dense or hybrid
-      # Milvus Consistency level for vector store, supported values are "Bounded", "Strong", "Session"
-      APP_VECTORSTORE_CONSISTENCYLEVEL: ${APP_VECTORSTORE_CONSISTENCYLEVEL:-"Strong"}
       # vectorstore collection name to store embeddings
       COLLECTION_NAME: ${COLLECTION_NAME:-multimodal_data}
       APP_RETRIEVER_SCORETHRESHOLD: 0.25
@@ -506,9 +506,9 @@ services:
       # Minimum groundedness score threshold (0-2)
       RESPONSE_GROUNDEDNESS_THRESHOLD: ${RESPONSE_GROUNDEDNESS_THRESHOLD:-1}
       # reflection llm
-      REFLECTION_LLM: ${REFLECTION_LLM:-"mistralai/mixtral-8x22b-instruct-v0.1"}
+      REFLECTION_LLM: ${REFLECTION_LLM:-"nvidia/llama-3.3-nemotron-super-49b-v1"}
       # reflection llm server url. If "", Nvidia hosted API is used
-      REFLECTION_LLM_SERVERURL: ${REFLECTION_LLM_SERVERURL-"nim-llm-mixtral-8x22b:8000"}
+      REFLECTION_LLM_SERVERURL: ${REFLECTION_LLM_SERVERURL-"nim-llm:8000"}
 
     ports:
       - "8081:8081"
@@ -520,22 +520,15 @@ services:
   # Sample UI container which interacts with APIs exposed by rag-server container
   rag-playground:
     container_name: rag-playground
-    image: nvcr.io/nvidia/blueprint/rag-playground:${TAG:-2.2.0}
+    image: nvcr.io/nvstaging/blueprint/rag-playground:${TAG:-latest}
     build:
       # Set context to repo's root directory
       context: ../../frontend
       dockerfile: ./Dockerfile
       args:
-        # Model name for LLM
-        NEXT_PUBLIC_MODEL_NAME: ${APP_LLM_MODELNAME:-nvidia/llama-3.3-nemotron-super-49b-v1}
-        # Model name for embeddings
-        NEXT_PUBLIC_EMBEDDING_MODEL: ${APP_EMBEDDINGS_MODELNAME:-nvidia/llama-3.2-nv-embedqa-1b-v2}
-        # Model name for reranking
-        NEXT_PUBLIC_RERANKER_MODEL: ${APP_RANKING_MODELNAME:-nvidia/llama-3.2-nv-rerankqa-1b-v2}
-        # URL for rag server container
-        NEXT_PUBLIC_CHAT_BASE_URL: "http://rag-server:8081/v1"
-        # URL for ingestor container
-        NEXT_PUBLIC_VDB_BASE_URL: "http://ingestor-server:8082/v1"
+        # API URLs for backend services (only URLs needed at build time for Vite)
+        VITE_API_CHAT_URL: "http://rag-server:8081/v1"
+        VITE_API_VDB_URL: "http://ingestor-server:8082/v1"
     ports:
       - "8090:3000"
     expose:
@@ -543,7 +536,11 @@ services:
     depends_on:
       - rag-server
     environment:
-      - NVWB_TRIM_PREFIX=true
+      # Runtime environment variables for Vite
+      # Note: Model configuration is managed by frontend settings store
+      VITE_API_CHAT_URL: "http://rag-server:8081/v1"
+      VITE_API_VDB_URL: "http://ingestor-server:8082/v1"
+      NVWB_TRIM_PREFIX: "true"
     profiles: ["rag"]
 
   # Milvus can be made GPU accelerated by uncommenting the lines as specified below

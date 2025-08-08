@@ -19,9 +19,10 @@
 
 import logging
 from functools import lru_cache
-from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
+
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.embeddings import Embeddings
+from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
 
 from nvidia_rag.utils.common import get_config, sanitize_nim_url
 
@@ -31,6 +32,7 @@ try:
     import torch
 except Exception:
     logger.warning("Optional module torch not installed.")
+
 
 @lru_cache
 def get_embedding_model(model: str, url: str) -> Embeddings:
@@ -45,9 +47,11 @@ def get_embedding_model(model: str, url: str) -> Embeddings:
     # Sanitize the URL
     url = sanitize_nim_url(url, model, "embedding")
 
-    logger.info("Using %s as model engine and %s and model for embeddings",
-                settings.embeddings.model_engine,
-                model)
+    logger.info(
+        "Using %s as model engine and %s and model for embeddings",
+        settings.embeddings.model_engine,
+        model,
+    )
     if settings.embeddings.model_engine == "huggingface":
         hf_embeddings = HuggingFaceEmbeddings(
             model_name=settings.embeddings.model_name,
@@ -59,15 +63,12 @@ def get_embedding_model(model: str, url: str) -> Embeddings:
 
     if settings.embeddings.model_engine == "nvidia-ai-endpoints":
         if url:
-            logger.info("Using embedding model %s hosted at %s",
-                        model,
-                        url)
-            return NVIDIAEmbeddings(base_url=url,
-                                    model=model,
-                                    truncate="END")
+            logger.info("Using embedding model %s hosted at %s", model, url)
+            return NVIDIAEmbeddings(base_url=url, model=model, truncate="END")
 
         logger.info("Using embedding model %s hosted at api catalog", model)
         return NVIDIAEmbeddings(model=model, truncate="END")
 
     raise RuntimeError(
-        "Unable to find any supported embedding model. Supported engine is huggingface and nvidia-ai-endpoints.")
+        "Unable to find any supported embedding model. Supported engine is huggingface and nvidia-ai-endpoints."
+    )

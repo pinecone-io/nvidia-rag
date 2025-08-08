@@ -30,20 +30,16 @@ Class:
 
 import base64
 import io
-import json
 import os
 from logging import getLogger
-from typing import Any, Dict, List
+from typing import Any
 
-import requests
-import yaml
 from langchain_core.messages import HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from PIL import Image as PILImage
 
-from nvidia_rag.utils.common import get_config
 from nvidia_rag.utils.llm import get_llm, get_prompts
 from nvidia_rag.utils.minio_operator import get_minio_operator, get_unique_thumbnail_id
 
@@ -65,6 +61,7 @@ class VLM:
     reason_on_vlm_response(question, vlm_response, docs, llm_settings):
         Uses an LLM to reason about the VLM's response and decide if it should be used.
     """
+
     def __init__(self, vlm_model: str, vlm_endpoint: str):
         """
         Initialize the VLM with configuration and prompt templates.
@@ -78,7 +75,7 @@ class VLM:
         self.invoke_url = vlm_endpoint
         self.model_name = vlm_model
         if not self.invoke_url or not self.model_name:
-            raise EnvironmentError(
+            raise OSError(
                 "VLM server URL and model name must be set in the environment."
             )
         prompts = get_prompts()
@@ -89,7 +86,7 @@ class VLM:
         logger.info(f"VLM Model Name: {self.model_name}")
         logger.info(f"VLM Server URL: {self.invoke_url}")
 
-    def analyze_image(self, image_b64_list: List[str], question: str) -> str:
+    def analyze_image(self, image_b64_list: list[str], question: str) -> str:
         """
         Analyze up to 4 images using the VLM for a given question.
 
@@ -136,7 +133,7 @@ class VLM:
             return ""
 
     def _resize_and_merge_images(
-        self, image_objects: List[PILImage.Image], target_height: int = 400
+        self, image_objects: list[PILImage.Image], target_height: int = 400
     ) -> str:
         """
         Resize images to a target height, merge them horizontally, and return as base64 PNG.
@@ -176,9 +173,7 @@ class VLM:
             merged_image_bytes = buffer.getvalue()
             return base64.b64encode(merged_image_bytes).decode()
 
-    def analyze_images_from_context(
-        self, docs: List[dict], question: str
-    ) -> str:
+    def analyze_images_from_context(self, docs: list[dict], question: str) -> str:
         """
         Extract images from document context and analyze them with the VLM.
 
@@ -231,7 +226,10 @@ class VLM:
                     img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
                     image_objects.append(img)
             except Exception as e:
-                logger.warning(f"Failed to process document for image extraction: {e}", exc_info=True)
+                logger.warning(
+                    f"Failed to process document for image extraction: {e}",
+                    exc_info=True,
+                )
                 continue
 
         if not image_objects:
@@ -251,8 +249,8 @@ class VLM:
         self,
         question: str,
         vlm_response: str,
-        docs: List[dict],
-        llm_settings: Dict[str, Any],
+        docs: list[dict],
+        llm_settings: dict[str, Any],
     ) -> bool:
         """
         Use an LLM to reason about the VLM's response and decide if it should be used.
