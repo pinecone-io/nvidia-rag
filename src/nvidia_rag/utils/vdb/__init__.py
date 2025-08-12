@@ -95,5 +95,15 @@ def _get_vdb_op(
             csv_file_path=csv_file_path,
         )
 
+    elif CONFIG.vector_store.name == "pinecone":
+        from nvidia_rag.utils.vdb.pinecone.pinecone_vdb import PineconeVDB
+
+        return PineconeVDB(
+            api_key=CONFIG.vector_store.api_key,
+            index_name=collection_name,
+            dimension=CONFIG.embeddings.dimensions,
+            top_k=CONFIG.vector_store.top_k,
+            embedding_model=embedding_model,
+        )
     else:
         raise ValueError(f"Invalid vector store name: {CONFIG.vector_store.name}")
