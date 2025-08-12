@@ -80,3 +80,6 @@ coverage/
 cover/
 *.log
 # Workbench Project Layout
+
+# Notebook scratchpad
+.virtual_documents
