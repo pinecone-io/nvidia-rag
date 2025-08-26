@@ -1,0 +1,13 @@
+vector_store:
+  name: "pinecone"
+  url: "http://localhost:5090"
+  api_key: "your-pinecone-api-key"
+  dimension: 1536
+  metric: "cosine"
+  region: "us-east-1"
+  cloud: "aws"
+  enable_gpu_index: false
+  enable_gpu_search: false
+  default_namespace_name: "default"
+
+# Add other configurations as needed
