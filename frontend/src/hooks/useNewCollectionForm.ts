@@ -89,6 +89,7 @@ export function useNewCollectionForm() {
 
       if (!isValidName) {
         setError(`Collection name must contain only ${dbType === "pinecone" ? "alphanumerics and dashes" : "alphanumerics and underscores"}.`);
+        console.log(`dbType: ${dbType}`);
         return;
       }
 
