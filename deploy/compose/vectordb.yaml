@@ -97,26 +97,29 @@ services:
   #    retries: 10
   #  profiles: ["elasticsearch"]
 
-  pinecone:
-    container_name: pinecone
-    image: ghcr.io/pinecone-io/pinecone-local:latest
-    ports:
-      - 5080:5090
-    volumes:
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/pinecone:/pinecone
-      - ./pinecone-config.yaml:/app/config.yaml  # Copy config.yaml into the Docker image
-    environment:
-      PINECONE_API_KEY: ${PINECONE_API_KEY:-pinecone-api-key}
-      PORT: 5090
-      PINECONE_HOST: localhost
-      APP_CONFIG_FILE: /app/config.yaml  # Set the environment variable to point to the config file
-    platform: linux/amd64
-    healthcheck:
-      test: ["CMD", "sh", "-c", "curl -i -X GET \"https://localhost:5080/indexes\" -H \"Api-Key: ${PINECONE_API_KEY:-pinecone-api-key}\" -H \"X-Pinecone-API-Version: 2025-04\""]
-      interval: 300s
-      timeout: 1s
-      retries: 3
-    profiles: ["pinecone"]
+  # Uncomment this section if you are using Pinecone local docker image as the vector database
+  # If using the Pinecone SaaS this section is not needed
+  #pinecone:
+  #  container_name: pinecone
+  #  image: ghcr.io/pinecone-io/pinecone-local:latest
+  #  ports:
+  #    - 5080:5090
+  #  volumes:
+  #    - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/pinecone:/pinecone
+  #    - ./pinecone-config.yaml:/app/config.yaml  # Copy config.yaml into the Docker image
+  #  environment:
+  #    # Environment variables for Pinecone
+  #    PINECONE_API_KEY: ${PINECONE_API_KEY:?"PINECONE_API_KEY is required"}
+  #    PINECONE_INDEX_NAME: ${PINECONE_INDEX_NAME:?"PINECONE_INDEX_NAME is required"}
+  #    PORT: 5090
+  #    PINECONE_HOST: localhost
+  #  platform: linux/amd64
+  #  healthcheck:
+  #    test: ["CMD", "sh", "-c", "curl -i -X GET \"https://localhost:5080/indexes\" -H \"Api-Key: ${PINECONE_API_KEY:-pinecone-api-key}\" -H \"X-Pinecone-API-Version: 2025-04\""]
+  #    interval: 300s
+  #    timeout: 1s
+  #    retries: 3
+  #  profiles: ["pinecone"]
 
 networks:
   default:
