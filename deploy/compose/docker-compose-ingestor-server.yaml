@@ -3,7 +3,7 @@ services:
   # Main ingestor server which is responsible for ingestion
   ingestor-server:
     container_name: ingestor-server
-    image: nvcr.io/nvstaging/blueprint/ingestor-server:${TAG:-latest}
+    #image: nvcr.io/nvstaging/blueprint/ingestor-server:${TAG:-latest}
     build:
       # Set context to repo's root directory
       context: ../../
@@ -18,6 +18,10 @@ services:
 
     # Common customizations to the pipeline can be controlled using env variables
     environment:
+      # Environment variables for Pinecone
+      PINECONE_API_KEY: ${PINECONE_API_KEY:?"PINECONE_API_KEY is required"}
+      PINECONE_INDEX_NAME: ${PINECONE_INDEX_NAME:?"PINECONE_INDEX_NAME is required"}
+
       # Path to example directory relative to root
       EXAMPLE_PATH: 'src/nvidia_rag/ingestor_server'
 
@@ -126,7 +130,11 @@ services:
       - "6379:6379"
 
   nv-ingest-ms-runtime:
-    image: nvcr.io/nvstaging/nim/nv-ingest:25.8.0-RC2
+    #image: nvcr.io/nvstaging/nim/nv-ingest:25.8.0-RC2
+    build:
+      # Set context to repo's root directory
+      context: ../../
+      dockerfile: ./src/nvidia_rag/ingestor_server/Dockerfile
     cpuset: "0-15"
     volumes:
       - ${DATASET_ROOT:-./data}:/workspace/data

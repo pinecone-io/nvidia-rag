@@ -13,9 +13,12 @@ services:
     volumes:
       # Mount the prompt.yaml file to the container, path should be absolute
       - ${PROMPT_CONFIG_FILE}:${PROMPT_CONFIG_FILE}
-      - ./pinecone-config.yaml:/app/config.yaml:ro
     # Common customizations to the pipeline can be controlled using env variables
     environment:
+      # Environment variables for Pinecone
+      PINECONE_API_KEY: ${PINECONE_API_KEY:?"PINECONE_API_KEY is required"}
+      PINECONE_INDEX_NAME: ${PINECONE_INDEX_NAME:?"PINECONE_INDEX_NAME is required"}
+
       # Path to example directory relative to root
       EXAMPLE_PATH: './nvidia_rag/rag_server'
 
@@ -83,9 +86,6 @@ services:
       ENABLE_VLM_INFERENCE: ${ENABLE_VLM_INFERENCE:-false}
       APP_VLM_SERVERURL: ${APP_VLM_SERVERURL-"http://vlm-ms:8000/v1"}
       APP_VLM_MODELNAME: ${APP_VLM_MODELNAME:-"nvidia/llama-3.1-nemotron-nano-vl-8b-v1"}
-
-      ##===Additional app specific configurations===
-      APP_CONFIG_FILE: ${APP_CONFIG_FILE:-/app/config.yaml}
 
       NVIDIA_API_KEY: ${NGC_API_KEY:?"NGC_API_KEY is required"}
 

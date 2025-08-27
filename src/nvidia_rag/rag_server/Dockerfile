@@ -14,7 +14,7 @@ WORKDIR /build
 
 COPY uv.lock pyproject.toml README.md LICENSE ./
 COPY ./src ./src
-
+COPY ./deploy/compose/pinecone-config.yaml ./
 RUN uv build
 
 # -------- Stage 2: Runtime Stage --------
@@ -60,6 +60,13 @@ COPY --from=builder /build/uv.lock /workspace/
 RUN uv sync --locked --no-install-project --no-dev --extra rag
 
 COPY --from=builder /build/dist/*.whl /workspace/
+
+COPY --from=builder /build/pinecone-config.yaml /workspace/
+ENV APP_CONFIG_FILE=/workspace/pinecone-config.yaml
+
+# TODO: Set up the environment variables for using Pinecone
+# Then rewrite the rag-server to use the environment variables
+# May need to change the pinecone_vdb.py to use the environment variables
 
 # Place executables in the environment at the front of the path
 ENV PATH="/workspace/.venv/bin:$PATH"
