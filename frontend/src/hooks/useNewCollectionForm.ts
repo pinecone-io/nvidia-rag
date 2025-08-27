@@ -70,7 +70,6 @@ export function useNewCollectionForm() {
   };
 
   const handleCollectionNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const dbType = import.meta.env.VITE_VECTOR_DB_TYPE || "milvus"; // Default to milvus if not set
     const value = e.target.value;
     setCollectionName(value);
   };
@@ -83,7 +82,7 @@ export function useNewCollectionForm() {
 
   const handleSubmit = async () => {
     try {
-      const dbType = import.meta.env.VITE_VECTOR_DB_TYPE || "milvus";
+      const dbType = import.meta.env.VITE_VECTOR_DB_TYPE || "pinecone";
       const isValidName = dbType === "pinecone"
         ? /^[a-zA-Z0-9-]+$/.test(collectionName) // Allow only dashes for Pinecone
         : /^[a-zA-Z0-9_]+$/.test(collectionName); // Allow only underscores for others
