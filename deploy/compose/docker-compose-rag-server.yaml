@@ -164,18 +164,19 @@ services:
       dockerfile: ./Dockerfile
       args:
         # Environment variables for Vite build  
+        VITE_VECTOR_DB_TYPE: ${VITE_VECTOR_DB_TYPE:-pinecone}
         VITE_API_CHAT_URL: ${VITE_API_CHAT_URL:-http://rag-server:8081/v1}
         VITE_API_VDB_URL: ${VITE_API_VDB_URL:-http://ingestor-server:8082/v1}
-        VITE_MILVUS_URL: http://milvus:19530
     ports:
       - "8090:3000"
     expose:
       - "3000"
     environment:
       # Runtime environment variables for Vite
+      VITE_VECTOR_DB_TYPE: ${VITE_VECTOR_DB_TYPE:-pinecone}
       VITE_API_CHAT_URL: ${VITE_API_CHAT_URL:-http://rag-server:8081/v1}
       VITE_API_VDB_URL: ${VITE_API_VDB_URL:-http://ingestor-server:8082/v1}
-      VITE_MILVUS_URL: http://milvus:19530
+      VITE_VECTOR_DB_URL: ${VITE_VECTOR_DB_URL:-https://api.pinecone.io}
     depends_on:
       - rag-server
 

@@ -71,7 +71,7 @@ export function useSubmitNewCollection() {
       collection_name: collectionName,
       metadata_schema: filteredSchema,
       embedding_dimension: 2048,
-      vdb_endpoint: vdbEndpoint || import.meta.env.VITE_MILVUS_URL || "http://milvus:19530",
+      vdb_endpoint: vdbEndpoint || import.meta.env.VITE_VECTOR_DB_URL || "https://api.pinecone.io",
     };
 
     setIsLoading(true);

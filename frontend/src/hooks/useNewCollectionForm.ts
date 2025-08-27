@@ -70,7 +70,9 @@ export function useNewCollectionForm() {
   };
 
   const handleCollectionNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setCollectionName(e.target.value.replace(/\s+/g, "_"));
+    const dbType = import.meta.env.VITE_VECTOR_DB_TYPE || "milvus"; // Default to milvus if not set
+    const value = e.target.value;
+    setCollectionName(value);
   };
 
   const hasMissingRequired = selectedFiles.some((file) =>
@@ -81,8 +83,13 @@ export function useNewCollectionForm() {
 
   const handleSubmit = async () => {
     try {
-      if (!collectionName.match(/^[a-zA-Z_][a-zA-Z0-9_]*$/)) {
-        setError("Collection name must start with a letter or underscore and contain only alphanumerics or underscores.");
+      const dbType = import.meta.env.VITE_VECTOR_DB_TYPE || "milvus";
+      const isValidName = dbType === "pinecone"
+        ? /^[a-zA-Z0-9-]+$/.test(collectionName) // Allow only dashes for Pinecone
+        : /^[a-zA-Z0-9_]+$/.test(collectionName); // Allow only underscores for others
+
+      if (!isValidName) {
+        setError(`Collection name must contain only ${dbType === "pinecone" ? "alphanumerics and dashes" : "alphanumerics and underscores"}.`);
         return;
       }
 
@@ -95,10 +102,17 @@ export function useNewCollectionForm() {
       setIsLoading(true);
       setError(null);
 
+      console.log("Collection Name:", collectionName);
+      console.log("Environment Variables:", {
+        VITE_VECTOR_DB_TYPE: import.meta.env.VITE_VECTOR_DB_TYPE,
+        VITE_API_CHAT_URL: import.meta.env.VITE_API_CHAT_URL,
+        VITE_API_VDB_URL: import.meta.env.VITE_API_VDB_URL,
+      });
+
       await createCollection({
         collection_name: collectionName,
         embedding_dimension: 2048,
-        vdb_endpoint: vdbEndpoint || import.meta.env.VITE_MILVUS_URL || "http://milvus:19530",
+        vdb_endpoint: vdbEndpoint || import.meta.env.VITE_VECTOR_DB_URL || "https://api.pinecone.io",
         metadata_schema: metadataSchema.map(({ name, type }) => ({
           name: name.trim(),
           type,

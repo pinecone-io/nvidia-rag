@@ -75,7 +75,7 @@ RUN rm /bin/uv /bin/uvx /workspace/nvidia_rag-*.whl  /workspace/pyproject.toml  
 RUN apt autoremove -y build-essential
 
 # Set environment variables needed for Text splitter
-RUN mkdir /tmp-data/;
+RUN mkdir -p /tmp-data/;
 RUN chmod 777 -R /tmp-data
 RUN chown 1000:1000 -R /tmp-data
 ENV HF_HOME=/tmp-data
