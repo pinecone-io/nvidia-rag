@@ -1,10 +1,9 @@
-<h1><img align="center" src="https://github.com/user-attachments/assets/cbe0d62f-c856-4e0b-b3ee-6184b7c4d96f">NVIDIA RAG Blueprint</h1>
+<h1><img align="center" src="https://github.com/user-attachments/assets/cbe0d62f-c856-4e0b-b3ee-6184b7c4d96f">NVIDIA+Pinecone RAG Blueprint</h1>
 
 Use this documentation to learn about the NVIDIA RAG Blueprint.
 The target audience for this blueprint is
 developers who want a quick start to set up a RAG solution with a path-to-production with the NVIDIA NIM.
 For the prerequisites for this blueprint, see [Minimum System Requirements](/docs/support-matrix.md).
-
 
 ## Overview
 
@@ -15,6 +14,7 @@ By default, this blueprint leverages locally-deployed NVIDIA NIM microservices t
 However, you can replace these models with your NVIDIA-hosted models available in the [NVIDIA API Catalog](https://build.nvidia.com).
 
 ### Key Features
+
 - Multimodal PDF data extraction support with text, tables, charts, and infographics
 - Support for audio file ingestion
 - Native Python library support
@@ -35,7 +35,6 @@ However, you can replace these models with your NVIDIA-hosted models available i
 - OpenAI-compatible APIs
 - Decomposable and customizable
 - Pluggable vector database
-
 
 ### Software Components
 
@@ -60,7 +59,7 @@ The following are the default components included in this blueprint:
     * [NeMo Retriever Parse NIM](https://build.nvidia.com/nvidia/nemoretriever-parse)
 
 * RAG Orchestrator server - Langchain based
-* Milvus Vector Database - accelerated with NVIDIA cuVS
+* Pinecone Vector Database - integrated as a service for efficient vector storage and retrieval.
 * Ingestion - [Nemo Retriever Extraction](https://github.com/NVIDIA/nv-ingest/tree/main) is leveraged for ingestion of files. Nemo Retriever Extraction is a scalable, performance-oriented document content and metadata extraction microservice. Including support for parsing PDFs, Word and PowerPoint documents, it uses specialized NVIDIA NIM microservices to find, contextualize, and extract text, tables, charts and images for use in downstream generative applications.
 * File Types: File types supported by Nemo Retriever Extraction are supported by this blueprint. This includes `.pdf`, `.pptx`, `.docx` having images. Image captioning support is turned off by default to improve latency, so questions about images in documents will yield poor accuracy. For the full list of supported file types, see [What is NeMo Retriever Extraction?](https://docs.nvidia.com/nemo/retriever/extraction/overview/)
 
@@ -75,13 +74,11 @@ You can build on this blueprint by customizing the RAG application to your speci
 
 We also provide a sample user interface named `rag-playground`.
 
-
 ### Technical Diagram
 
   <p align="center">
   <img src="./docs/arch_diagram.png" width="750">
   </p>
-
 
 The image represents the architecture and workflow. Here's a step-by-step explanation of the workflow from end-user perspective:
 
@@ -92,7 +89,7 @@ The image represents the architecture and workflow. Here's a step-by-step explan
    - The query enters the **RAG Server**, which is based on LangChain. An optional **Query Rewriter** component may refine or decontextualize the query for better retrieval results at this stage. An optional NeMoGuardrails component can be enabled as well to help filter out queries at input of the pipeline.
 
 3. **Retrieval of Relevant Documents**:
-   - The refined query is passed to the **Retriever** module of the **RAG Server microservice**. This component queries the **Milvus Vector Database microservice**, which stores embeddings of the data, generated using **NeMo Retriever Embedding microservice**. The retriever module identifies the top K most relevant chunks of information related to the query.
+   - The refined query is passed to the **Retriever** module of the **RAG Server microservice**. This component queries the **Pinecone Vector Database**, which stores embeddings of the data, generated using **NeMo Retriever Embedding microservice**. The retriever module identifies the top K most relevant chunks of information related to the query.
 
 4. **Reranking for Precision**:
    - The top K chunks are passed to the optional **NeMo Retriever reranking microservice**. The reranker narrows down the results to the top N most relevant chunks, improving precision.
@@ -104,10 +101,9 @@ The image represents the architecture and workflow. Here's a step-by-step explan
    - The generated response is sent back to the **RAG Playground**, where the user can view the answer to their query as well as check the output of the retriever module using the `Citations` option.
 
 7. **Ingestion of Data**:
-   - Separately, unstructured data is ingested into the system via the `POST /documents` API using the **Ingestor server microservice**. This data is preprocessed, split into chunks and stored in the **Milvus Vector Database** using **Nvingest microservice** which is called from the ingestor microservice.
+   - Separately, unstructured data is ingested into the system via the `POST /documents` API using the **Ingestor server microservice**. This data is preprocessed, split into chunks and stored in the **Pinecone Vector Database** using **Nvingest microservice** which is called from the ingestor microservice.
 
 This modular design ensures efficient query processing, accurate retrieval of information, and easy customization.
-
 
 ## Get Started With NVIDIA RAG Blueprint
 
@@ -126,7 +122,6 @@ If you are interested in MIG support, see [Helm Deployment with MIG Support](doc
 
 To migrate from a previous version, see the [migration guide](./docs/migration_guide.md).
 
-
 ## Developer Guide
 
 After you deploy the RAG blueprint, you can customize it for your use cases.
@@ -138,9 +133,8 @@ The following are some of the customizations that you can make to the blueprint:
 - [Change the vector database](docs/change-vectordb.md)
 - [Customize Multi-Turn Conversations](docs/multiturn.md)
 - [Customize Prompts](docs/prompt-customization.md)
-- [Milvus Configuration](docs/milvus-configuration.md)
+- [Pinecone Configuration](docs/pinecone-configuration.md)
 - [Add custom metadata to files](docs/custom-metadata.md)
-
 
 The following are some of the features that you can enable:
 
@@ -162,8 +156,6 @@ The following are some of the features that you can enable:
 - [Enable VLM based inferencing in RAG](docs/vlm.md)
 - [Change the Vector Database Backend](docs/change-vectordb.md)
 
-
-
 To fine-tune RAG performance, see [Best practices for common settings](./docs/accuracy_perf.md).
 
 To troubleshoot issues that arise when you work with the NVIDIA RAG Blueprint, see [Troubleshoot](docs/troubleshooting.md).
@@ -180,14 +172,11 @@ To troubleshoot issues that arise when you work with the NVIDIA RAG Blueprint, s
 >
 > For these features, please use H100 or A100 GPUs instead.
 
-
-
 ## Inviting the community to contribute
 
 We're posting these examples on GitHub to support the NVIDIA LLM community and facilitate feedback.
 We invite contributions!
 To open a GitHub issue or pull request, see the [contributing guidelines](./CONTRIBUTING.md).
-
 
 ## License
 
@@ -195,9 +184,8 @@ This NVIDIA AI BLUEPRINT is licensed under the [Apache License, Version 2.0.](./
 
 Use of the models in this blueprint is governed by the [NVIDIA AI Foundation Models Community License](https://docs.nvidia.com/ai-foundation-models-community-license.pdf).
 
-
 ## Terms of Use
+
 This blueprint is governed by the [NVIDIA Agreements | Enterprise Software | NVIDIA Software License Agreement](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-software-license-agreement/) and the [NVIDIA Agreements | Enterprise Software | Product Specific Terms for AI Product](https://www.nvidia.com/en-us/agreements/enterprise-software/product-specific-terms-for-ai-products/). The models are governed by the [NVIDIA Agreements | Enterprise Software | NVIDIA Community Model License](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-community-models-license/) and the [NVIDIA RAG dataset](https://github.com/NVIDIA-AI-Blueprints/rag/tree/v2.0.0/data/multimodal) which is governed by the [NVIDIA Asset License Agreement](https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/data/LICENSE.DATA).
 
 The following models that are built with Llama are governed by the [Llama 3.2 Community License Agreement](https://www.llama.com/llama3_2/license/): llama-3.3-nemotron-super-49b-v1, nvidia/llama-3.2-nv-embedqa-1b-v2, and nvidia/llama-3.2-nv-rerankqa-1b-v2.
-
