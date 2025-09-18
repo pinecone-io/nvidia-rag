@@ -4,6 +4,9 @@ dependencies:
 - name: nv-ingest
   repository: https://helm.ngc.nvidia.com/nvidia/nemo-microservices/
   version: 25.6.2
+- name: elasticsearch
+  repository: https://helm.elastic.co
+  version: 8.5.1
 description: Helm chart for the NVIDIA RAG Blueprint Ingestor Server
 name: ingestor-server
 type: application

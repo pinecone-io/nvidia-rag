@@ -3,6 +3,22 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 
+# Migration Guide: RAG v2.2.0 to RAG v2.3.0
+
+## Overview
+
+This guide summarizes the key API changes and new features introduced in RAG v2.3.0. Update your integrations to take advantage of the new confidence threshold filtering capability and prepare for upcoming deprecations.
+
+## API changes
+
+- Confidence threshold filtering
+  - A `confidence_threshold: float` field has been added to the request schema of the `POST /generate` and `POST /search` endpoints.
+  - This feature filters documents by their relevance score, improving response quality by excluding low-quality matches.
+  - Works best when reranker is enabled to provide relevance scores.
+  - Default value is 0.0 (no filtering).
+  - Valid range is 0.0 to 1.0 (inclusive).
+  - When confidence threshold is set but reranker is disabled, a warning will be logged.
+
 # Migration Guide: RAG v2.1.0 to RAG v2.2.0
 
 ## Overview

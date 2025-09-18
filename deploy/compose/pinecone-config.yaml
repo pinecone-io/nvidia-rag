@@ -1,0 +1,16 @@
+vector_store:
+  name: "pinecone"
+  # For local testing, use the following url: "http://localhost:5090"
+  # For production, use the following url: "https://api.pinecone.io"
+  # TODO: Set up the environment variables for using Pinecone
+  api_key: ${PINECONE_API_KEY}
+  index_name: ${PINECONE_INDEX_NAME}
+  dimension: 1536
+  metric: "cosine"
+  region: "us-east-1"
+  cloud: "aws"
+  enable_gpu_index: false
+  enable_gpu_search: false
+  default_namespace_name: "default"
+
+# Add other configurations as needed

@@ -15,9 +15,8 @@
 """The definition of the application configuration."""
 
 import os
-from .configuration_wizard import ConfigWizard
-from .configuration_wizard import configclass
-from .configuration_wizard import configfield
+
+from .configuration_wizard import ConfigWizard, configclass, configfield
 
 
 @configclass
@@ -31,7 +30,7 @@ class VectorStoreConfig(ConfigWizard):
     name: str = configfield(
         "name",
         default="milvus",
-        help_txt="The name of vector store",  # supports milvus
+        help_txt="The name of vector store",  # supports "milvus", "elasticsearch"
     )
     url: str = configfield(
         "url",
@@ -68,7 +67,7 @@ class VectorStoreConfig(ConfigWizard):
 
     search_type: str = configfield(
         "search_type",
-        default="dense", # dense or hybrid
+        default="dense",  # dense or hybrid
         help_txt="Flag to control search type - 'dense' retrieval or 'hybrid' retrieval",
     )
 
@@ -79,23 +78,17 @@ class VectorStoreConfig(ConfigWizard):
         help_txt="Default collection name for vector store",
     )
 
-    consistency_level: str = configfield(
-        "consistency_level",
-        default="Strong", # "Bounded", "Strong", "Session"
-        env_name="APP_VECTORSTORE_CONSISTENCYLEVEL",
-        help_txt="Consistency level for vector store",
-    )
-
 
 @configclass
 class NvIngestConfig(ConfigWizard):
     """
     Configuration for NV-Ingest.
     """
+
     # NV-Ingest Runtime Connectivity Configuration parameters
     message_client_hostname: str = configfield(
         "message_client_hostname",
-        default="localhost", # TODO
+        default="localhost",  # TODO
         help_txt="NV Ingest Message Client Host Name",
     )
 
@@ -136,22 +129,43 @@ class NvIngestConfig(ConfigWizard):
         help_txt="Enable extract images for nv-ingest extraction",
     )
 
+    extract_page_as_image: bool = configfield(
+        "extract_page_as_image",
+        default=False,
+        help_txt="Enable extract page as image for nv-ingest extraction",
+    )
+
+    structured_elements_modality: str = configfield(
+        "structured_elements_modality",
+        default="",
+        help_txt="Modality of structured elements",
+        env_name="STRUCTURED_ELEMENTS_MODALITY",
+    )
+
+    image_elements_modality: str = configfield(
+        "image_elements_modality",
+        default="",
+        help_txt="Modality of image elements",
+        env_name="IMAGE_ELEMENTS_MODALITY",
+    )
+
     pdf_extract_method: str = configfield(
         "pdf_extract_method",
-        default="None", # Literal['pdfium','nemoretriever_parse','None']
+        default="None",  # Literal['pdfium','nemoretriever_parse','None']
         help_txt="Extract method 'pdfium', 'nemoretriever_parse', 'None'",
     )
 
     text_depth: str = configfield(
         "text_depth",
-        default="page", # Literal['page', 'document']
+        default="page",  # Literal['page', 'document']
         help_txt="Extract text by 'page' or 'document'",
     )
 
     # Splitting Configuration Parameters (Add additional parameters here)
     tokenizer: str = configfield(
         "tokenizer",
-        default="intfloat/e5-large-unsupervised", # Literal["intfloat/e5-large-unsupervised" , "meta-llama/Llama-3.2-1B"]
+        default="intfloat/e5-large-unsupervised",
+        # Literal["intfloat/e5-large-unsupervised" , "meta-llama/Llama-3.2-1B"]
         help_txt="Tokenizer for text splitting.",
     )
 
@@ -186,6 +200,12 @@ class NvIngestConfig(ConfigWizard):
         help_txt="Enable post chunk split for NV Ingest",
     )
 
+    segment_audio: bool = configfield(
+        "segment_audio",
+        default=False,
+        help_txt="Enable audio segmentation for NV Ingest",
+    )
+
 
 @configclass
 class ModelParametersConfig(ConfigWizard):
@@ -197,19 +217,19 @@ class ModelParametersConfig(ConfigWizard):
     max_tokens: int = configfield(
         "max_tokens",
         default=1024,
-        help_txt="The maximum number of tokens to generate in any given call."
+        help_txt="The maximum number of tokens to generate in any given call.",
     )
 
     temperature: float = configfield(
         "temperature",
         default=0.2,
-        help_txt="The sampling temperature to use for text generation."
+        help_txt="The sampling temperature to use for text generation.",
     )
 
     top_p: float = configfield(
         "top_p",
         default=0.7,
-        help_txt="The top-p sampling mass used for text generation."
+        help_txt="The top-p sampling mass used for text generation.",
     )
 
 
@@ -236,11 +256,6 @@ class LLMConfig(ConfigWizard):
         default="nvidia-ai-endpoints",
         help_txt="The server type of the hosted model. Allowed values are nvidia-ai-endpoints",
     )
-    model_name_pandas_ai: str = configfield(
-        "model_name_pandas_ai",
-        default="ai-mixtral-8x7b-instruct",
-        help_txt="The name of the ai catalog model to be used with PandasAI agent",
-    )
     # Add model parameters configuration
     parameters: ModelParametersConfig = configfield(
         "parameters",
@@ -258,7 +273,7 @@ class LLMConfig(ConfigWizard):
         params = {
             "max_tokens": self.parameters.max_tokens,
             "temperature": self.parameters.temperature,
-            "top_p": self.parameters.top_p
+            "top_p": self.parameters.top_p,
         }
 
         # Check for deepseek model
@@ -284,8 +299,8 @@ class LLMConfig(ConfigWizard):
 
 @configclass
 class QueryRewriterConfig(ConfigWizard):
-    """Configuration class for the Query Rewriter.
-    """
+    """Configuration class for the Query Rewriter."""
+
     model_name: str = configfield(
         "model_name",
         default="meta/llama-3.1-8b-instruct",
@@ -303,6 +318,45 @@ class QueryRewriterConfig(ConfigWizard):
         help_txt="Enable query rewriter",
     )
     # TODO: Add temperature, top_p, max_tokens
+
+
+@configclass
+class FilterExpressionGeneratorConfig(ConfigWizard):
+    """Configuration class for the Filter Expression Generator."""
+
+    model_name: str = configfield(
+        "model_name",
+        env_name="APP_FILTEREXPRESSIONGENERATOR_MODELNAME",
+        default="nvidia/llama-3.3-nemotron-super-49b-v1",
+        help_txt="The llm name of the filter expression generator model",
+    )
+    server_url: str = configfield(
+        "server_url",
+        env_name="APP_FILTEREXPRESSIONGENERATOR_SERVERURL",
+        default="",
+        help_txt="The location of the filter expression generator model.",
+    )
+    enable_filter_generator: bool = configfield(
+        "enable_filter_generator",
+        env_name="ENABLE_FILTER_GENERATOR",
+        default=False,
+        help_txt="Enable filter expression generator",
+    )
+    temperature: float = configfield(
+        "temperature",
+        default=0.1,
+        help_txt="The sampling temperature for filter expression generation.",
+    )
+    top_p: float = configfield(
+        "top_p",
+        default=0.9,
+        help_txt="The top-p sampling mass for filter expression generation.",
+    )
+    max_tokens: int = configfield(
+        "max_tokens",
+        default=500,
+        help_txt="The maximum number of tokens for filter expression generation.",
+    )
 
 
 @configclass
@@ -415,39 +469,33 @@ class RetrieverConfig(ConfigWizard):
     )
     nr_url: str = configfield(
         "nr_url",
-        default='http://retrieval-ms:8000',
+        default="http://retrieval-ms:8000",
         help_txt="The nemo retriever microservice url",
     )
     nr_pipeline: str = configfield(
         "nr_pipeline",
-        default='ranked_hybrid',
+        default="ranked_hybrid",
         help_txt="The name of the nemo retriever pipeline one of ranked_hybrid or hybrid",
     )
 
+
 @configclass
 class TracingConfig(ConfigWizard):
-    """Configuration class for Open Telemetry Tracing.
-    """
+    """Configuration class for Open Telemetry Tracing."""
+
     enabled: bool = configfield(
         "enabled",
         default=False,
         help_txt="Enable Open Telemetry Tracing",
     )
-    otlp_http_endpoint: str = configfield(
-        "otlp_http_endpoint",
-        default="",
-        help_txt=""
-    )
-    otlp_grpc_endpoint: str = configfield(
-        "otlp_grpc_endpoint",
-        default="",
-        help_txt=""
-    )
+    otlp_http_endpoint: str = configfield("otlp_http_endpoint", default="", help_txt="")
+    otlp_grpc_endpoint: str = configfield("otlp_grpc_endpoint", default="", help_txt="")
+
 
 @configclass
 class VLMConfig(ConfigWizard):
-    """Configuration class for the VLM.
-    """
+    """Configuration class for the VLM."""
+
     server_url: str = configfield(
         "server_url",
         default="http://localhost:8000/v1",
@@ -459,10 +507,11 @@ class VLMConfig(ConfigWizard):
         help_txt="The name of the VLM model",
     )
 
+
 @configclass
 class MinioConfig(ConfigWizard):
-    """Configuration class for the Minio.
-    """
+    """Configuration class for the Minio."""
+
     endpoint: str = configfield(
         "endpoint",
         env_name="MINIO_ENDPOINT",
@@ -483,10 +532,11 @@ class MinioConfig(ConfigWizard):
         help_txt="The secret key of the minio server",
     )
 
+
 @configclass
 class SummarizerConfig(ConfigWizard):
-    """Configuration class for the Summarizer.
-    """
+    """Configuration class for the Summarizer."""
+
     model_name: str = configfield(
         "model_name",
         env_name="SUMMARY_LLM",
@@ -512,6 +562,48 @@ class SummarizerConfig(ConfigWizard):
         help_txt="Overlap between chunks for iterative summarization (in characters)",
     )
 
+
+@configclass
+class MetadataConfig(ConfigWizard):
+    """Configuration for metadata handling and validation.
+    - All type/format constants are referenced from metadata_validation.py
+    """
+
+    max_array_length: int = configfield(
+        "max_array_length",
+        default=1000,
+        help_txt="Maximum length for array metadata fields",
+    )
+    max_string_length: int = configfield(
+        "max_string_length",
+        default=65535,
+        help_txt="Maximum length for string metadata fields",
+    )
+    allow_partial_filtering: bool = configfield(
+        "allow_partial_filtering",
+        default=False,
+        help_txt="Allow partial filtering across collections. When True, only collections that fully support the filter are used. When False, all collections must support the filter or the request fails.",
+    )
+
+
+@configclass
+class QueryDecompositionConfig(ConfigWizard):
+    """Configuration class for the Query Decomposition."""
+
+    enable_query_decomposition: bool = configfield(
+        "enable_query_decomposition",
+        env_name="ENABLE_QUERY_DECOMPOSITION",
+        default=False,
+        help_txt="Enable query decomposition",
+    )
+    recursion_depth: int = configfield(
+        "recursion_depth",
+        env_name="MAX_RECURSION_DEPTH",
+        default=3,
+        help_txt="Maximum recursion depth for query decomposition",
+    )
+
+
 @configclass
 class AppConfig(ConfigWizard):
     """Configuration class for the application.
@@ -526,6 +618,8 @@ class AppConfig(ConfigWizard):
     :type embeddings: EmbeddingConfig
     :cvar prompts: The Prompts template for RAG and Chat
     :type prompts: PromptsConfig
+    :cvar metadata: The configuration for metadata handling.
+    :type metadata: MetadataConfig
     """
 
     vector_store: VectorStoreConfig = configfield(
@@ -545,6 +639,12 @@ class AppConfig(ConfigWizard):
         env=False,
         help_txt="The configuration for the query rewriter.",
         default=QueryRewriterConfig(),
+    )
+    filter_expression_generator: FilterExpressionGeneratorConfig = configfield(
+        "filter_expression_generator",
+        env=False,
+        help_txt="The configuration for the filter expression generator.",
+        default=FilterExpressionGeneratorConfig(),
     )
     text_splitter: TextSplitterConfig = configfield(
         "text_splitter",
@@ -577,10 +677,7 @@ class AppConfig(ConfigWizard):
         default=NvIngestConfig(),
     )
     tracing: TracingConfig = configfield(
-        "tracing",
-        env=False,
-        help_txt="",
-        default=TracingConfig()
+        "tracing", env=False, help_txt="", default=TracingConfig()
     )
     enable_guardrails: bool = configfield(
         "enable_guardrails",
@@ -599,6 +696,12 @@ class AppConfig(ConfigWizard):
         env_name="ENABLE_VLM_INFERENCE",
         default=False,
         help_txt="Enable VLM inference",
+    )
+    default_confidence_threshold: float = configfield(
+        "default_confidence_threshold",
+        env_name="RERANKER_CONFIDENCE_THRESHOLD",
+        default=0.0,
+        help_txt="Default confidence threshold for filtering documents by reranker relevance scores (0.0 to 1.0). Only documents with scores >= this threshold are included.",
     )
     vlm: VLMConfig = configfield(
         "vlm",
@@ -623,4 +726,17 @@ class AppConfig(ConfigWizard):
         env=False,
         help_txt="The configuration for the summarizer.",
         default=SummarizerConfig(),
+    )
+
+    metadata: MetadataConfig = configfield(
+        "metadata",
+        env=False,
+        help_txt="The configuration for metadata handling.",
+        default=MetadataConfig(),
+    )
+    query_decomposition: QueryDecompositionConfig = configfield(
+        "query_decomposition",
+        env=False,
+        help_txt="The configuration for query decomposition.",
+        default=QueryDecompositionConfig(),
     )

@@ -14,11 +14,12 @@ WORKDIR /build
 
 COPY uv.lock pyproject.toml README.md LICENSE ./
 COPY ./src ./src
-
+COPY ./deploy/compose/pinecone-config.yaml ./
 RUN uv build
     
 # -------- Stage 2: Runtime Stage --------
-FROM ${BASE_IMAGE_URL}:${BASE_IMAGE_TAG} AS runtime
+# FROM ${BASE_IMAGE_URL}:${BASE_IMAGE_TAG} AS runtime
+FROM nvcr.io/nvidia/blueprint/ingestor-server:2.2.0 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV DEBIAN_FRONTEND noninteractive
@@ -56,6 +57,8 @@ WORKDIR /workspace
 
 COPY --from=builder /build/pyproject.toml /workspace/
 COPY --from=builder /build/uv.lock /workspace/
+COPY --from=builder /build/pinecone-config.yaml /workspace/
+ENV APP_CONFIG_FILE=/workspace/pinecone-config.yaml
 
 RUN uv sync --locked --no-install-project --no-dev --extra ingest
 
@@ -72,7 +75,7 @@ RUN rm /bin/uv /bin/uvx /workspace/nvidia_rag-*.whl  /workspace/pyproject.toml  
 RUN apt autoremove -y build-essential
 
 # Set environment variables needed for Text splitter
-RUN mkdir /tmp-data/;
+RUN mkdir -p /tmp-data/;
 RUN chmod 777 -R /tmp-data
 RUN chown 1000:1000 -R /tmp-data
 ENV HF_HOME=/tmp-data

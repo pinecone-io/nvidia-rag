@@ -12,8 +12,8 @@ imagePullSecret:
   password: ""
 
 image:
-  repository: nvcr.io/nvidia/blueprint/ingestor-server
-  tag: "2.2.0"
+  repository: nvcr.io/nvstaging/blueprint/ingestor-server
+  tag: "latest"
   pullPolicy: Always
 
 server:
@@ -29,8 +29,8 @@ envVars:
   EXAMPLE_PATH: 'src/nvidia_rag/ingestor_server'
 
   # === Vector Store Configurations ===
-  APP_VECTORSTORE_URL: "http://milvus:19530"
-  APP_VECTORSTORE_NAME: "milvus"
+  APP_VECTORSTORE_URL: "http://milvus:19530" # Use "http://elasticsearch:9200" for elasticsearch
+  APP_VECTORSTORE_NAME: "milvus" # supported values: "milvus" or "elasticsearch"
   APP_VECTORSTORE_SEARCHTYPE: "dense"
   APP_VECTORSTORE_ENABLEGPUINDEX: "True"
   APP_VECTORSTORE_ENABLEGPUSEARCH: "True"
@@ -76,6 +76,7 @@ envVars:
   APP_NVINGEST_CHUNKSIZE: "512"
   APP_NVINGEST_CHUNKOVERLAP: "150"
   APP_NVINGEST_ENABLEPDFSPLITTER: "True"
+  APP_NVINGEST_SEGMENTAUDIO: "False"  # Enable audio segmentation for NV Ingest
 
   # === Redis configurations ===
   REDIS_HOST: "rag-redis-master"
@@ -89,6 +90,9 @@ envVars:
   # === NV-Ingest Batch Mode Configurations ===
   NV_INGEST_FILES_PER_BATCH: "16"
   NV_INGEST_CONCURRENT_BATCHES: "4"
+
+elasticsearch:
+  enabled: false
 
 # NV-Ingest
 nv-ingest:
@@ -124,9 +128,10 @@ nv-ingest:
     INSTALL_AUDIO_EXTRACTION_DEPS: "true"
 
     # WAR to fix -loadbalancer from the ingestion NIMs URLs
-    PADDLE_GRPC_ENDPOINT: nv-ingest-paddle:8001
-    PADDLE_HTTP_ENDPOINT: http://nv-ingest-paddle:8000/v1/infer
-    PADDLE_INFER_PROTOCOL: grpc
+    OCR_GRPC_ENDPOINT: nv-ingest-paddle:8001
+    OCR_HTTP_ENDPOINT: http://nv-ingest-paddle:8000/v1/infer
+    OCR_INFER_PROTOCOL: grpc
+    OCR_MODEL_NAME: paddle
     YOLOX_GRPC_ENDPOINT: nemoretriever-page-elements-v2:8001
     YOLOX_HTTP_ENDPOINT: http://nemoretriever-page-elements-v2:8000/v1/infer
     YOLOX_INFER_PROTOCOL: grpc
@@ -142,7 +147,21 @@ nv-ingest:
     replicaCount: 1
     image:
       repository: nvcr.io/nim/baidu/paddleocr
-      tag: "1.3.0"
+      tag: "1.4.0"
+    imagePullSecrets:
+    - name: ngc-secret
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+      requests:
+        nvidia.com/gpu: 1
+
+  nemoretriever-ocr:
+    deployed: false
+    replicaCount: 1
+    image:
+      repository: nvcr.io/nvidia/nemo-microservices/nemoretriever-ocr-v1
+      tag: "latest"
     imagePullSecrets:
     - name: ngc-secret
     resources:
@@ -156,7 +175,7 @@ nv-ingest:
     replicaCount: 1
     image:
       repository: nvcr.io/nim/nvidia/nemoretriever-graphic-elements-v1
-      tag: "1.3.0"
+      tag: "1.4.0"
     resources:
       limits:
         nvidia.com/gpu: 1
@@ -168,7 +187,7 @@ nv-ingest:
     replicaCount: 1
     image:
       repository: nvcr.io/nim/nvidia/nemoretriever-page-elements-v2
-      tag: "1.3.0"
+      tag: "1.4.0"
     resources:
       limits:
         nvidia.com/gpu: 1
@@ -180,7 +199,7 @@ nv-ingest:
     replicaCount: 1
     image:
       repository: nvcr.io/nim/nvidia/nemoretriever-table-structure-v1
-      tag: "1.3.0"
+      tag: "1.4.0"
     resources:
       limits:
         nvidia.com/gpu: 1
@@ -199,7 +218,7 @@ nv-ingest:
   nvidia-nim-llama-32-nv-embedqa-1b-v2:
     image:
       repository: nvcr.io/nim/nvidia/llama-3.2-nv-embedqa-1b-v2
-      tag: "1.6.0"
+      tag: "1.9.0"
     deployed: false
 
   milvus:

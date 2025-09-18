@@ -45,7 +45,10 @@ See [Using self-hosted NVIDIA NIM microservices](quickstart.md#deploy-with-docke
   - The pipeline can share the GPU with the Embedding NIM, but it is recommended to have a separate GPU for the Embedding NIM for optimal performance.
 - **Reranking NIM**: [llama-3_2-nv-rerankqa-1b-v2 Support Matrix](https://docs.nvidia.com/nim/nemo-retriever/text-reranking/latest/support-matrix.html#llama-3-2-nv-rerankqa-1b-v2)
 - **NVIDIA NIM for Image OCR**: [baidu/paddleocr](https://docs.nvidia.com/nim/ingestion/table-extraction/latest/support-matrix.html#supported-hardware)
+- **NeMo Retriever OCR**: [NVIDIA NIM for Image OCR (NeMo Retriever OCR v1)](https://docs.nvidia.com/nim/ingestion/image-ocr/latest/support-matrix.html)
 - **NVIDIA NIMs for Object Detection**:
   - [NeMo Retriever Page Elements v2](https://docs.nvidia.com/nim/ingestion/object-detection/latest/support-matrix.html#nemo-retriever-page-elements-v2)
   - [NeMo Retriever Graphic Elements v1](https://docs.nvidia.com/nim/ingestion/object-detection/latest/support-matrix.html#nemo-retriever-graphic-elements-v1)
   - [NeMo Retriever Table Structure v1](https://docs.nvidia.com/nim/ingestion/object-detection/latest/support-matrix.html#nemo-retriever-table-structure-v1)
+
+> [!TIP] To switch between Paddle OCR and NeMo Retriever OCR, see [NeMo Retriever OCR](nemoretriever-ocr.md).

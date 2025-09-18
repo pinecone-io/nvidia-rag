@@ -2,6 +2,47 @@
 All notable changes to this project will be documented in this file.
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [2.3.0] - 2025-09-19
+This release adds RTX6000 platform support, deployment via NIM operator as well as improves vector database pluggability with the blueprint.
+
+### Added
+- Support deploying the blueprint on RTX6000 platform.
+- Added support to deploy the helm chart using [NVIDIA NIM operator](./docs/quickstart.md#enable-nim-operator-with-the-chart).
+- Updated all NIMs and NVIDIA Ingest and dependencies to latest versions.
+- Refactoring to support custom 3rd party vector DB integration in a streamlined manner.
+  - Interactive notebook showcasing integration with library mode [here](./notebooks/building_rag_vdb_operator.ipynb).
+- Added support for [elasticsearch vector DB as an alternate to milvus](./docs/change-vectordb.md).
+- Added opt-in [query decomposition support](./docs/query_decomposition.md).
+- Added opt-in [nemoretriever-ocr support](./docs/nemoretriever-ocr.md).
+- Added opt-in VLM embedding support
+- Custom metadata enhancments. Detailed doc [here](./docs/custom-metadata.md).
+  - Added support for more datatypes.
+  - Added opt-in support to generate filters using LLM yielding better accuracy.
+  - Added an [interactive notebook](./notebooks/nb_metadata.ipynb) showcasing new features.
+- Added dependency check support for ingestor server /health API.
+- Added support for configurable confidence threashold for retrieval from API layer.
+- Logging enhancements
+- Added better latency data reporting for RAG server
+  - API level enhancements for component level latency
+  - Added dedicated Prometheus metric endpoint
+
+## Changed
+- Migrated default LLM model for reflection to `llama-3.3-nemotron-super-49b` instead of `mixtral-8x22b-instruct-v01`.
+- Refactored [rag-playground](./frontend/) code
+  - Use React end to end. Next.js dependencies were deprecated.
+  - More developer friendly and intuitive look and feel.
+
+### Fixed
+- Fixed support for long audio file ingestion.
+- Fixed support to ingest images without charts/tables.
+
+### Deprecated
+- Deprecated consistency level configuration support for Milvus.
+
+### Known Issues
+Check out [this section](./docs/troubleshooting.md#known-issues) to understand the known issues present for this release.
+A detailed guide is available [here](./docs/migration_guide.md) for easing developers experience, while migrating from older versions.
+
 
 ## [2.2.1] - 2025-07-22
 

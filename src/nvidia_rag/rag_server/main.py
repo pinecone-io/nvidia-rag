@@ -13,45 +13,74 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" This defines the main modules for RAG server which manages the core functionality.
-    1. generate(): Generate a response using the RAG chain.
-    2. search(): Search for the most relevant documents for the given search parameters.
-    3. get_summary(): Get the summary of a document.
+"""This defines the main modules for RAG server which manages the core functionality.
+1. generate(): Generate a response using the RAG chain.
+2. search(): Search for the most relevant documents for the given search parameters.
+3. get_summary(): Get the summary of a document.
 
-    Private methods:
-    1. __llm_chain: Execute a simple LLM chain using the components defined above.
-    2. __rag_chain: Execute a RAG chain using the components defined above.
-    3. __print_conversation_history: Print the conversation history.
-    4. __normalize_relevance_scores: Normalize the relevance scores of the documents.
-    5. __format_document_with_source: Format the document with the source.
+Private methods:
+1. __llm_chain: Execute a simple LLM chain using the components defined above.
+2. __rag_chain: Execute a RAG chain using the components defined above.
+3. __print_conversation_history: Print the conversation history.
+4. __normalize_relevance_scores: Normalize the relevance scores of the documents.
+5. __format_document_with_source: Format the document with the source.
 
 """
 
 import logging
+import math
 import os
 import time
-import requests
-import math
-from traceback import print_exc
-from typing import Any, Dict, Generator, List, Tuple, Optional
+from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
+from traceback import print_exc
+from typing import Any
+
+import requests
+from langchain_core.documents import Document
 from langchain_core.output_parsers.string import StrOutputParser
 from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.prompts.chat import ChatPromptTemplate
-from langchain_core.runnables import RunnableAssign, RunnablePassthrough
-from requests import ConnectTimeout
+from langchain_core.runnables import RunnableAssign
 from opentelemetry import context as otel_context
+from requests import ConnectTimeout
 
-from nvidia_rag.utils.common import get_config, validate_filter_expr
+from nvidia_rag.rag_server.health import check_all_services_health
+from nvidia_rag.rag_server.query_decomposition import iterative_query_decomposition
+from nvidia_rag.rag_server.reflection import (
+    ReflectionCounter,
+    check_context_relevance,
+    check_response_groundedness,
+)
+from nvidia_rag.rag_server.response_generator import (
+    Citations,
+    generate_answer,
+    prepare_citations,
+    prepare_llm_request,
+    retrieve_summary,
+)
+from nvidia_rag.rag_server.validation import (
+    validate_model_info,
+    validate_reranker_k,
+    validate_temperature,
+    validate_top_p,
+    validate_use_knowledge_base,
+)
+from nvidia_rag.rag_server.vlm import VLM
+from nvidia_rag.utils.common import (
+    filter_documents_by_confidence,
+    get_config,
+    process_filter_expr,
+    validate_filter_expr,
+)
 from nvidia_rag.utils.embedding import get_embedding_model
-from nvidia_rag.rag_server.response_generator import prepare_llm_request, generate_answer, prepare_citations, Citations, retrieve_summary
-from nvidia_rag.utils.vectorstore import create_vectorstore_langchain, get_vectorstore, retreive_docs_from_retriever
+from nvidia_rag.utils.filter_expression_generator import (
+    generate_filter_from_natural_language,
+)
 from nvidia_rag.utils.llm import get_llm, get_prompts, get_streaming_filter_think_parser
 from nvidia_rag.utils.reranker import get_ranking_model
-from nvidia_rag.rag_server.reflection import ReflectionCounter, check_context_relevance, check_response_groundedness
-from nvidia_rag.rag_server.health import check_all_services_health
-from nvidia_rag.rag_server.vlm import VLM
-from nvidia_rag.rag_server.validation import validate_model_info, validate_use_knowledge_base, validate_temperature, validate_top_p, validate_reranker_k
+from nvidia_rag.utils.vdb import _get_vdb_op
+from nvidia_rag.utils.vdb.vdb_base import VDBRag
 
 logger = logging.getLogger(__name__)
 CONFIG = get_config()
@@ -62,27 +91,52 @@ default_max_tokens = model_params["max_tokens"]
 default_temperature = model_params["temperature"]
 default_top_p = model_params["top_p"]
 
-document_embedder = get_embedding_model(model=CONFIG.embeddings.model_name, url=CONFIG.embeddings.server_url)
-ranker = get_ranking_model(model=CONFIG.ranking.model_name, url=CONFIG.ranking.server_url, top_n=CONFIG.retriever.top_k)
+document_embedder = get_embedding_model(
+    model=CONFIG.embeddings.model_name, url=CONFIG.embeddings.server_url
+)
+ranker = get_ranking_model(
+    model=CONFIG.ranking.model_name,
+    url=CONFIG.ranking.server_url,
+    top_n=CONFIG.retriever.top_k,
+)
 query_rewriter_llm_config = {"temperature": 0.7, "top_p": 0.2, "max_tokens": 1024}
-logger.info("Query rewriter llm config: model name %s, url %s, config %s", CONFIG.query_rewriter.model_name, CONFIG.query_rewriter.server_url, query_rewriter_llm_config)
-query_rewriter_llm = get_llm(model=CONFIG.query_rewriter.model_name, llm_endpoint=CONFIG.query_rewriter.server_url, **query_rewriter_llm_config)
+logger.info(
+    "Query rewriter llm config: model name %s, url %s, config %s",
+    CONFIG.query_rewriter.model_name,
+    CONFIG.query_rewriter.server_url,
+    query_rewriter_llm_config,
+)
+query_rewriter_llm = get_llm(
+    model=CONFIG.query_rewriter.model_name,
+    llm_endpoint=CONFIG.query_rewriter.server_url,
+    **query_rewriter_llm_config,
+)
+
+# Initialize filter expression generator LLM
+filter_generator_llm_config = {
+    "temperature": CONFIG.filter_expression_generator.temperature,
+    "top_p": CONFIG.filter_expression_generator.top_p,
+    "max_tokens": CONFIG.filter_expression_generator.max_tokens,
+}
+
+filter_generator_llm = get_llm(
+    model=CONFIG.filter_expression_generator.model_name,
+    llm_endpoint=CONFIG.filter_expression_generator.server_url,
+    **filter_generator_llm_config,
+)
+
 prompts = get_prompts()
 vdb_top_k = int(CONFIG.retriever.vdb_top_k)
-
-try:
-    VECTOR_STORE = create_vectorstore_langchain(document_embedder=document_embedder)
-except Exception as ex:
-    VECTOR_STORE = None
-    logger.error("Unable to connect to vector store during initialization: %s", ex)
 
 MAX_COLLECTION_NAMES = 5
 
 # Get a StreamingFilterThinkParser based on configuration
 StreamingFilterThinkParser = get_streaming_filter_think_parser()
 
+
 class APIError(Exception):
     """Custom exception class for API errors."""
+
     def __init__(self, message: str, code: int = 400):
         logger.error("APIError occurred: %s with HTTP status: %d", message, code)
         print_exc()
@@ -90,9 +144,23 @@ class APIError(Exception):
         self.code = code
         super().__init__(message)
 
-class NvidiaRAG():
 
-    async def health(self, check_dependencies: bool = False) -> Dict[str, Any]:
+class NvidiaRAG:
+    def __init__(
+        self,
+        vdb_op: VDBRag = None,
+    ):
+        self.vdb_op = vdb_op
+
+        if self.vdb_op is not None:
+            if not isinstance(self.vdb_op, VDBRag):
+                raise ValueError(
+                    "vdb_op must be an instance of nvidia_rag.utils.vdb.vdb_base.VDBRag. "
+                    "Please make sure all the required methods are implemented."
+                )
+
+    @staticmethod
+    async def health(check_dependencies: bool = False) -> dict[str, Any]:
         """Check the health of the RAG server."""
         response_message = "Service is up."
         health_results = {}
@@ -103,34 +171,71 @@ class NvidiaRAG():
             health_results.update(dependencies_results)
         return health_results
 
+    def __prepare_vdb_op(
+        self,
+        vdb_endpoint: str = None,
+        embedding_model: str = None,
+        embedding_endpoint: str = None,
+    ):
+        """
+        Prepare the VDBRag object for generation.
+        """
+        if self.vdb_op is not None:
+            if vdb_endpoint is not None:
+                raise ValueError(
+                    "vdb_endpoint is not supported when vdb_op is provided during initialization."
+                )
+            if embedding_model is not None:
+                raise ValueError(
+                    "embedding_model is not supported when vdb_op is provided during initialization."
+                )
+            if embedding_endpoint is not None:
+                raise ValueError(
+                    "embedding_endpoint is not supported when vdb_op is provided during initialization."
+                )
+
+            return self.vdb_op
+
+        document_embedder = get_embedding_model(
+            model=embedding_model or CONFIG.embeddings.model_name,
+            url=embedding_endpoint or CONFIG.embeddings.server_url,
+        )
+
+        return _get_vdb_op(
+            vdb_endpoint=vdb_endpoint or CONFIG.vector_store.url,
+            embedding_model=document_embedder,
+        )
 
     def generate(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         use_knowledge_base: bool = True,
         temperature: float = default_temperature,
         top_p: float = default_top_p,
         max_tokens: int = default_max_tokens,
-        stop: List[str] = None,
+        stop: list[str] = None,
         reranker_top_k: int = int(CONFIG.retriever.top_k),
         vdb_top_k: int = int(CONFIG.retriever.vdb_top_k),
-        vdb_endpoint: str = CONFIG.vector_store.url,
+        vdb_endpoint: str = None,
         collection_name: str = "",
-        collection_names: List[str] = [CONFIG.vector_store.default_collection_name],
+        collection_names: list[str] = None,
         enable_query_rewriting: bool = CONFIG.query_rewriter.enable_query_rewriter,
         enable_reranker: bool = CONFIG.ranking.enable_reranker,
         enable_guardrails: bool = CONFIG.enable_guardrails,
         enable_citations: bool = CONFIG.enable_citations,
         enable_vlm_inference: bool = CONFIG.enable_vlm_inference,
+        enable_filter_generator: bool = CONFIG.filter_expression_generator.enable_filter_generator,
         model: str = CONFIG.llm.model_name,
         llm_endpoint: str = CONFIG.llm.server_url,
-        embedding_model: str = CONFIG.embeddings.model_name,
-        embedding_endpoint: Optional[str] = CONFIG.embeddings.server_url,
+        embedding_model: str = None,
+        embedding_endpoint: str = None,
         reranker_model: str = CONFIG.ranking.model_name,
         reranker_endpoint: str = CONFIG.ranking.server_url,
         vlm_model: str = CONFIG.vlm.model_name,
         vlm_endpoint: str = CONFIG.vlm.server_url,
-        filter_expr: Optional[str] = '',
+        filter_expr: str | list[dict[str, Any]] = "",
+        enable_query_decomposition: bool = CONFIG.query_decomposition.enable_query_decomposition,
+        confidence_threshold: float = CONFIG.default_confidence_threshold,
     ) -> Generator[str, None, None]:
         """Execute a Retrieval Augmented Generation chain using the components defined above.
         It's called when the `/generate` API is invoked with `use_knowledge_base` set to `True` or `False`.
@@ -144,7 +249,6 @@ class NvidiaRAG():
             stop: List of stop sequences
             reranker_top_k: Number of documents to return after reranking
             vdb_top_k: Number of documents to retrieve from vector DB
-            vdb_endpoint: Vector database endpoint URL
             collection_name: Name of the collection to use
             collection_names: List of collection names to use
             enable_query_rewriting: Whether to enable query rewriting
@@ -153,12 +257,16 @@ class NvidiaRAG():
             enable_citations: Whether to enable citations
             model: Name of the LLM model
             llm_endpoint: LLM server endpoint URL
-            embedding_model: Name of the embedding model
-            embedding_endpoint: Embedding server endpoint URL
             reranker_model: Name of the reranker model
             reranker_endpoint: Reranker server endpoint URL
             filter_expr: Filter expression to filter document from vector DB
         """
+
+        vdb_op = self.__prepare_vdb_op(
+            vdb_endpoint=vdb_endpoint,
+            embedding_model=embedding_model,
+            embedding_endpoint=embedding_endpoint,
+        )
 
         # Validate boolean and float parameters
         use_knowledge_base = validate_use_knowledge_base(use_knowledge_base)
@@ -169,19 +277,26 @@ class NvidiaRAG():
         reranker_top_k = validate_reranker_k(reranker_top_k, vdb_top_k)
 
         # Normalize all model and endpoint values using validation functions
-        model, llm_endpoint, embedding_model, embedding_endpoint, reranker_model, reranker_endpoint, vlm_model, vlm_endpoint = map(
-            lambda x: validate_model_info(x[0], x[1]),
-            [
-                (model, "model"),
-                (llm_endpoint, "llm_endpoint"),
-                (embedding_model, "embedding_model"),
-                (embedding_endpoint, "embedding_endpoint"),
-                (reranker_model, "reranker_model"),
-                (reranker_endpoint, "reranker_endpoint"),
-                (vlm_model, "vlm_model"),
-                (vlm_endpoint, "vlm_endpoint")
-            ]
+        (
+            model,
+            llm_endpoint,
+            reranker_model,
+            reranker_endpoint,
+            vlm_model,
+            vlm_endpoint,
+        ) = (
+            validate_model_info(model, "model"),
+            validate_model_info(llm_endpoint, "llm_endpoint"),
+            validate_model_info(reranker_model, "reranker_model"),
+            validate_model_info(reranker_endpoint, "reranker_endpoint"),
+            validate_model_info(vlm_model, "vlm_model"),
+            validate_model_info(vlm_endpoint, "vlm_endpoint"),
         )
+
+        if stop is None:
+            stop = []
+        if collection_names is None:
+            collection_names = [CONFIG.vector_store.default_collection_name]
 
         query, chat_history = prepare_llm_request(messages)
         llm_settings = {
@@ -203,9 +318,6 @@ class NvidiaRAG():
                 vdb_top_k=vdb_top_k,
                 collection_name=collection_name,
                 collection_names=collection_names,
-                embedding_model=embedding_model,
-                embedding_endpoint=embedding_endpoint,
-                vdb_endpoint=vdb_endpoint,
                 enable_reranker=enable_reranker,
                 reranker_model=reranker_model,
                 reranker_endpoint=reranker_endpoint,
@@ -215,36 +327,43 @@ class NvidiaRAG():
                 model=model,
                 enable_query_rewriting=enable_query_rewriting,
                 enable_citations=enable_citations,
-                filter_expr=filter_expr
+                filter_expr=filter_expr,
+                enable_filter_generator=enable_filter_generator,
+                vdb_op=vdb_op,
+                enable_query_decomposition=enable_query_decomposition,
+                confidence_threshold=confidence_threshold,
             )
         else:
-            logger.info("Using LLM to generate response directly without knowledge base.")
+            logger.info(
+                "Using LLM to generate response directly without knowledge base."
+            )
             return self.__llm_chain(
                 llm_settings=llm_settings,
                 query=query,
                 chat_history=chat_history,
                 model=model,
                 collection_name=collection_name,
-                enable_citations=enable_citations
+                enable_citations=enable_citations,
             )
-
 
     def search(
         self,
         query: str,
-        messages: List[Dict[str, str]] = [],
+        messages: list[dict[str, str]] = None,
         reranker_top_k: int = int(CONFIG.retriever.top_k),
         vdb_top_k: int = int(CONFIG.retriever.vdb_top_k),
         collection_name: str = "",
-        collection_names: List[str] = [CONFIG.vector_store.default_collection_name],
-        vdb_endpoint: str = CONFIG.vector_store.url,
+        collection_names: list[str] = None,
+        vdb_endpoint: str = None,
         enable_query_rewriting: bool = CONFIG.query_rewriter.enable_query_rewriter,
         enable_reranker: bool = CONFIG.ranking.enable_reranker,
-        embedding_model: str = CONFIG.embeddings.model_name,
-        embedding_endpoint: Optional[str] = CONFIG.embeddings.server_url,
+        enable_filter_generator: bool = CONFIG.filter_expression_generator.enable_filter_generator,
+        embedding_model: str = None,
+        embedding_endpoint: str = None,
         reranker_model: str = CONFIG.ranking.model_name,
-        reranker_endpoint: Optional[str] = CONFIG.ranking.server_url,
-        filter_expr: Optional[str] = '',
+        reranker_endpoint: str | None = CONFIG.ranking.server_url,
+        filter_expr: str | list[dict[str, Any]] = "",
+        confidence_threshold: float = CONFIG.default_confidence_threshold,
     ) -> Citations:
         """Search for the most relevant documents for the given search parameters.
         It's called when the `/search` API is invoked.
@@ -263,79 +382,160 @@ class NvidiaRAG():
             embedding_endpoint (str): Endpoint URL for the embedding model server.
             reranker_model (str): Name of the reranker model used for ranking results.
             reranker_endpoint (Optional[str]): Endpoint URL for the reranker model server.
-            filter_expr (Optional[str]): Filter expression to filter document from vector DB
+            filter_expr (Union[str, List[Dict[str, Any]]]): Filter expression to filter document from vector DB
         Returns:
             Citations: Retrieved documents.
         """
 
         logger.info("Searching relevant document for the query: %s", query)
 
+        vdb_op = self.__prepare_vdb_op(
+            vdb_endpoint=vdb_endpoint,
+            embedding_model=embedding_model,
+            embedding_endpoint=embedding_endpoint,
+        )
+
+        if messages is None:
+            messages = []
+        if collection_names is None:
+            collection_names = [CONFIG.vector_store.default_collection_name]
+
         # Validate top_k parameters
         reranker_top_k = validate_reranker_k(reranker_top_k, vdb_top_k)
 
         # Normalize all model and endpoint values using validation functions
-        embedding_model, embedding_endpoint, reranker_model, reranker_endpoint = map(
-            lambda x: validate_model_info(x[0], x[1]),
-            [
-                (embedding_model, "embedding_model"),
-                (embedding_endpoint, "embedding_endpoint"),
-                (reranker_model, "reranker_model"),
-                (reranker_endpoint, "reranker_endpoint"),
-            ]
+        reranker_model, reranker_endpoint = (
+            validate_model_info(reranker_model, "reranker_model"),
+            validate_model_info(reranker_endpoint, "reranker_endpoint"),
         )
 
         try:
-            if collection_name: # Would be deprecated in the future
-                logger.warning("'collection_name' parameter is provided. This will be deprecated in the future. Use 'collection_names' instead.")
+            if collection_name:  # Would be deprecated in the future
+                logger.warning(
+                    "'collection_name' parameter is provided. This will be deprecated in the future. Use 'collection_names' instead."
+                )
                 collection_names = [collection_name]
 
             if not collection_names:
                 raise APIError("Collection names are not provided.", 400)
 
             if len(collection_names) > 1 and not enable_reranker:
-                raise APIError("Reranking is not enabled but multiple collection names are provided.", 400)
-            
-            if not validate_filter_expr(filter_expr):
-                raise APIError("Invalid filter expression.", 400)
+                raise APIError(
+                    "Reranking is not enabled but multiple collection names are provided.",
+                    400,
+                )
 
             if len(collection_names) > MAX_COLLECTION_NAMES:
-                raise APIError(f"Only {MAX_COLLECTION_NAMES} collections are supported at a time.", 400)
+                raise APIError(
+                    f"Only {MAX_COLLECTION_NAMES} collections are supported at a time.",
+                    400,
+                )
 
-            document_embedder = get_embedding_model(model=embedding_model, url=embedding_endpoint)
-            # Initialize vector stores for each collection name
-            vector_stores = []
-            for collection_name in collection_names:
-                vector_stores.append(get_vectorstore(document_embedder, collection_name, vdb_endpoint))
+            metadata_schemas = {}
 
-            # Check if all vector stores are initialized properly
-            for vs in vector_stores:
-                if vs is None:
-                    raise APIError("Vector store not initialized properly. Please check if the vector DB is up and running.", 500)
+            if (
+                filter_expr
+                and (not isinstance(filter_expr, str) or filter_expr.strip() != "")
+                or enable_filter_generator
+            ):
+                for collection_name in collection_names:
+                    metadata_schemas[collection_name] = vdb_op.get_metadata_schema(
+                        collection_name
+                    )
+
+            if not filter_expr or (
+                isinstance(filter_expr, str) and filter_expr.strip() == ""
+            ):
+                validation_result = {
+                    "status": True,
+                    "validated_collections": collection_names,
+                }
+            else:
+                validation_result = validate_filter_expr(
+                    filter_expr, collection_names, metadata_schemas
+                )
+
+            if not validation_result["status"]:
+                error_message = validation_result.get(
+                    "error_message", "Invalid filter expression"
+                )
+                error_details = validation_result.get("details", "")
+                full_error = f"Invalid filter expression: {error_message}"
+                if error_details:
+                    full_error += f" Details: {error_details}"
+                raise APIError(full_error, 400)
+
+            validated_collections = validation_result.get(
+                "validated_collections", collection_names
+            )
+
+            if len(validated_collections) < len(collection_names):
+                skipped_collections = [
+                    name
+                    for name in collection_names
+                    if name not in validated_collections
+                ]
+                logger.info(
+                    f"Collections {skipped_collections} do not support the filter expression and will be skipped"
+                )
+
+            if not filter_expr or (
+                isinstance(filter_expr, str) and filter_expr.strip() == ""
+            ):
+                collection_filter_mapping = dict.fromkeys(validated_collections, "")
+                logger.debug(
+                    "Filter expression is empty, skipping processing for all collections"
+                )
+            else:
+
+                def process_filter_for_collection(collection_name):
+                    metadata_schema_data = metadata_schemas.get(collection_name)
+                    processed_filter_expr = process_filter_expr(
+                        filter_expr, collection_name, metadata_schema_data
+                    )
+                    logger.debug(
+                        f"Filter expression processed for collection '{collection_name}': '{filter_expr}' -> '{processed_filter_expr}'"
+                    )
+                    return collection_name, processed_filter_expr
+
+                collection_filter_mapping = {}
+                with ThreadPoolExecutor() as executor:
+                    futures = [
+                        executor.submit(process_filter_for_collection, collection_name)
+                        for collection_name in validated_collections
+                    ]
+                    for future in futures:
+                        collection_name, processed_filter_expr = future.result()
+                        collection_filter_mapping[collection_name] = (
+                            processed_filter_expr
+                        )
 
             docs = []
-            local_ranker = get_ranking_model(model=reranker_model, url=reranker_endpoint, top_n=reranker_top_k)
+            local_ranker = get_ranking_model(
+                model=reranker_model, url=reranker_endpoint, top_n=reranker_top_k
+            )
             top_k = vdb_top_k if local_ranker and enable_reranker else reranker_top_k
             logger.info("Setting top k as: %s.", top_k)
-            # Initialize retrievers for each vector store
-            retrievers = []
-            for vs in vector_stores:
-                retrievers.append(vs.as_retriever(search_kwargs={"k": top_k}))
-
 
             retriever_query = query
             if messages:
                 if enable_query_rewriting:
                     # conversation is tuple so it should be multiple of two
                     # -1 is to keep last k conversation
-                    history_count = int(os.environ.get("CONVERSATION_HISTORY", 15)) * 2 * -1
+                    history_count = (
+                        int(os.environ.get("CONVERSATION_HISTORY", 15)) * 2 * -1
+                    )
                     messages = messages[history_count:]
                     conversation_history = []
 
                     for message in messages:
-                        if message.get("role") !=  "system":
-                            conversation_history.append((message.get("role"), message.get("content")))
+                        if message.get("role") != "system":
+                            conversation_history.append(
+                                (message.get("role"), message.get("content"))
+                            )
 
-                    # Based on conversation history recreate query for better document retrieval
+                    # Based on conversation history recreate query for better
+                    # document retrieval
                     contextualize_q_system_prompt = (
                         "Given a chat history and the latest user question "
                         "which might reference context in the chat history, "
@@ -343,100 +543,272 @@ class NvidiaRAG():
                         "without the chat history. Do NOT answer the question, "
                         "just reformulate it if needed and otherwise return it as is."
                     )
-                    query_rewriter_prompt = prompts.get("query_rewriter_prompt", contextualize_q_system_prompt)
-                    contextualize_q_prompt = ChatPromptTemplate.from_messages(
-                        [("system", query_rewriter_prompt), MessagesPlaceholder("chat_history"), ("human", "{input}"),]
+                    query_rewriter_prompt = prompts.get(
+                        "query_rewriter_prompt", contextualize_q_system_prompt
                     )
-                    q_prompt = contextualize_q_prompt | query_rewriter_llm | StreamingFilterThinkParser | StrOutputParser()
+                    contextualize_q_prompt = ChatPromptTemplate.from_messages(
+                        [
+                            ("system", query_rewriter_prompt),
+                            MessagesPlaceholder("chat_history"),
+                            ("human", "{input}"),
+                        ]
+                    )
+                    q_prompt = (
+                        contextualize_q_prompt
+                        | query_rewriter_llm
+                        | StreamingFilterThinkParser
+                        | StrOutputParser()
+                    )
                     # query to be used for document retrieval
                     logger.info("Query rewriter prompt: %s", contextualize_q_prompt)
-                    retriever_query = q_prompt.invoke({"input": query, "chat_history": conversation_history})
-                    logger.info("Rewritten Query: %s %s", retriever_query, len(retriever_query))
-                    if retriever_query.replace('"', "'") == "''" or len(retriever_query) == 0:
+                    retriever_query = q_prompt.invoke(
+                        {"input": query, "chat_history": conversation_history}
+                    )
+                    logger.info(
+                        "Rewritten Query: %s %s", retriever_query, len(retriever_query)
+                    )
+                    if (
+                        retriever_query.replace('"', "'") == "''"
+                        or len(retriever_query) == 0
+                    ):
                         return Citations()
                 else:
-                    # Use previous user queries and current query to form a single query for document retrieval
-                    user_queries = [msg.get("content") for msg in messages if msg.get("role") == "user"]
+                    # Use previous user queries and current query to form a
+                    # single query for document retrieval
+                    user_queries = [
+                        msg.get("content")
+                        for msg in messages
+                        if msg.get("role") == "user"
+                    ]
                     retriever_query = ". ".join([*user_queries, query])
                     logger.info("Combined retriever query: %s", retriever_query)
+
+            if enable_filter_generator:
+                if CONFIG.vector_store.name != "milvus":
+                    logger.warning(
+                        f"Filter expression generator is currently only supported for Milvus. "
+                        f"Current vector store: {CONFIG.vector_store.name}. Skipping filter generation."
+                    )
+                else:
+                    logger.debug(
+                        "Filter expression generator enabled, attempting to generate filter from query"
+                    )
+                    try:
+
+                        def generate_filter_for_collection(collection_name):
+                            try:
+                                metadata_schema_data = metadata_schemas.get(
+                                    collection_name
+                                )
+
+                                generated_filter = (
+                                    generate_filter_from_natural_language(
+                                        user_request=retriever_query,
+                                        collection_name=collection_name,
+                                        metadata_schema=metadata_schema_data,
+                                        prompt_template=prompts.get(
+                                            "filter_expression_generator_prompt"
+                                        ),
+                                        llm=filter_generator_llm,
+                                        existing_filter_expr=filter_expr,
+                                    )
+                                )
+
+                                if generated_filter:
+                                    logger.debug(
+                                        f"Generated filter expression for collection '{collection_name}': {generated_filter}"
+                                    )
+
+                                    processed_filter_expr = process_filter_expr(
+                                        generated_filter,
+                                        collection_name,
+                                        metadata_schema_data,
+                                        is_generated_filter=True,
+                                    )
+                                    return collection_name, processed_filter_expr
+                                else:
+                                    logger.debug(
+                                        f"No filter expression generated for collection '{collection_name}'"
+                                    )
+                                    return collection_name, ""
+                            except Exception as e:
+                                logger.warning(
+                                    f"Error generating filter for collection '{collection_name}': {str(e)}"
+                                )
+                                return collection_name, ""
+
+                        with ThreadPoolExecutor() as executor:
+                            futures = [
+                                executor.submit(
+                                    generate_filter_for_collection, collection_name
+                                )
+                                for collection_name in validated_collections
+                            ]
+
+                            for future in futures:
+                                collection_name, processed_filter_expr = future.result()
+                                collection_filter_mapping[collection_name] = (
+                                    processed_filter_expr
+                                )
+
+                        generated_count = len(
+                            [f for f in collection_filter_mapping.values() if f]
+                        )
+                        if generated_count > 0:
+                            logger.info(
+                                f"Generated filter expressions for {generated_count}/{len(validated_collections)} collections"
+                            )
+                        else:
+                            logger.info(
+                                "No filter expressions generated for any collection"
+                            )
+
+                    except Exception as e:
+                        logger.error(f"Error generating filter expression: {str(e)}")
+
+            if confidence_threshold > 0.0 and not enable_reranker:
+                logger.warning(
+                    f"confidence_threshold is set to {confidence_threshold} but enable_reranker is explicitly set to False. "
+                    f"Confidence threshold filtering requires reranker to be enabled to generate relevance scores. "
+                    f"Consider setting enable_reranker=True for effective filtering."
+                )
+
             # Get relevant documents with optional reflection
             otel_ctx = otel_context.get_current()
             if os.environ.get("ENABLE_REFLECTION", "false").lower() == "true":
                 max_loops = int(os.environ.get("MAX_REFLECTION_LOOP", 3))
                 reflection_counter = ReflectionCounter(max_loops)
-                docs, is_relevant = check_context_relevance(query, retrievers, local_ranker, reflection_counter, enable_reranker, filter_expr=filter_expr)
-                # Normalize scores to 0-1 range (was missing!)
+                docs, is_relevant = check_context_relevance(
+                    vdb_op=self.vdb_op,
+                    retriever_query=retriever_query,
+                    collection_names=validated_collections,
+                    ranker=local_ranker,
+                    reflection_counter=reflection_counter,
+                    top_k=top_k,
+                    enable_reranker=enable_reranker,
+                    collection_filter_mapping=collection_filter_mapping,
+                )
                 if local_ranker and enable_reranker:
                     docs = self.__normalize_relevance_scores(docs)
+                    if confidence_threshold > 0.0:
+                        docs = filter_documents_by_confidence(
+                            documents=docs,
+                            confidence_threshold=confidence_threshold,
+                        )
                 if not is_relevant:
-                    logger.warning("Could not find sufficiently relevant context after maximum attempts")
-                return prepare_citations(retrieved_documents=docs,
-                                         force_citations=True)
+                    logger.warning(
+                        "Could not find sufficiently relevant context after maximum attempts"
+                    )
+                return prepare_citations(retrieved_documents=docs, force_citations=True)
             else:
                 if local_ranker and enable_reranker:
                     logger.info(
                         "Narrowing the collection from %s results and further narrowing it to %s with the reranker for rag"
                         " chain.",
                         top_k,
-                        reranker_top_k)
+                        reranker_top_k,
+                    )
                     logger.info("Setting ranker top n as: %s.", reranker_top_k)
                     # Update number of document to be retriever by ranker
                     local_ranker.top_n = reranker_top_k
 
-                    context_reranker = RunnableAssign({
-                        "context":
-                            lambda input: local_ranker.compress_documents(query=input['question'],
-                                                                        documents=input['context'])
-                    })
+                    context_reranker = RunnableAssign(
+                        {
+                            "context": lambda input: local_ranker.compress_documents(
+                                query=input["question"], documents=input["context"]
+                            )
+                        }
+                    )
 
-                    # Perform parallel retrieval from all vector stores
+                    # Perform parallel retrieval from all vector stores with their specific filter expressions
                     docs = []
+                    vectorstores = []
+                    for collection_name in validated_collections:
+                        vectorstores.append(
+                            vdb_op.get_langchain_vectorstore(collection_name)
+                        )
+
                     with ThreadPoolExecutor() as executor:
-                        futures = [executor.submit(retreive_docs_from_retriever, retriever=retriever, retriever_query=retriever_query, expr=filter_expr, otel_ctx=otel_ctx) for retriever in retrievers]
+                        futures = [
+                            executor.submit(
+                                vdb_op.retrieval_langchain,
+                                query=retriever_query,
+                                collection_name=collection_name,
+                                vectorstore=vectorstore,
+                                top_k=top_k,
+                                filter_expr=collection_filter_mapping.get(
+                                    collection_name, ""
+                                ),
+                                otel_ctx=otel_ctx,
+                            )
+                            for collection_name, vectorstore in zip(
+                                validated_collections, vectorstores, strict=False
+                            )
+                        ]
                         for future in futures:
                             docs.extend(future.result())
 
                     start_time = time.time()
-                    docs = context_reranker.invoke({"context": docs, "question": retriever_query}, config={'run_name':'context_reranker'})
-                    logger.info("    == Context reranker time: %.2f ms ==", (time.time() - start_time) * 1000)
+                    docs = context_reranker.invoke(
+                        {"context": docs, "question": retriever_query},
+                        config={"run_name": "context_reranker"},
+                    )
+                    logger.info(
+                        "    == Context reranker time: %.2f ms ==",
+                        (time.time() - start_time) * 1000,
+                    )
 
                     # Normalize scores to 0-1 range"
                     docs = self.__normalize_relevance_scores(docs.get("context", []))
+                    if confidence_threshold > 0.0:
+                        docs = filter_documents_by_confidence(
+                            documents=docs,
+                            confidence_threshold=confidence_threshold,
+                        )
 
-                    return prepare_citations(retrieved_documents=docs,
-                                             force_citations=True)
+                    return prepare_citations(
+                        retrieved_documents=docs, force_citations=True
+                    )
 
-            # Multiple retrievers are not supported when reranking is disabled
-            docs = retreive_docs_from_retriever(retriever=retrievers[0], retriever_query=retriever_query, expr=filter_expr, otel_ctx=otel_ctx)
+            docs = vdb_op.retrieval_langchain(
+                query=retriever_query,
+                collection_name=validated_collections[0],
+                vectorstore=vdb_op.get_langchain_vectorstore(validated_collections[0]),
+                top_k=top_k,
+                filter_expr=collection_filter_mapping.get(validated_collections[0], ""),
+                otel_ctx=otel_ctx,
+            )
             # TODO: Check how to get the relevance score from milvus
-            return prepare_citations(retrieved_documents=docs,
-                                     force_citations=True)
+            return prepare_citations(retrieved_documents=docs, force_citations=True)
 
         except Exception as e:
             raise APIError(f"Failed to search documents. {str(e)}") from e
 
-
+    @staticmethod
     async def get_summary(
-        self,
         collection_name: str,
         file_name: str,
         blocking: bool = False,
-        timeout: int = 300
-    ) -> Dict[str, Any]:
+        timeout: int = 300,
+    ) -> dict[str, Any]:
         """Get the summary of a document."""
 
-        summary_response = await retrieve_summary(collection_name=collection_name, file_name=file_name, wait=blocking, timeout=timeout)
+        summary_response = await retrieve_summary(
+            collection_name=collection_name,
+            file_name=file_name,
+            wait=blocking,
+            timeout=timeout,
+        )
         return summary_response
-
 
     def __llm_chain(
         self,
-        llm_settings: Dict[str, Any],
+        llm_settings: dict[str, Any],
         query: str,
-        chat_history: List[Dict[str, str]],
+        chat_history: list[dict[str, str]],
         model: str = "",
         collection_name: str = "",
-        enable_citations: bool = True
+        enable_citations: bool = True,
     ) -> Generator[str, None, None]:
         """Execute a simple LLM chain using the components defined above.
         It's called when the `/generate` API is invoked with `use_knowledge_base` set to `False`.
@@ -459,7 +831,10 @@ class NvidiaRAG():
             system_prompt += prompts.get("chat_template", "")
 
             if "llama-3.3-nemotron-super-49b" in str(model):
-                if os.environ.get("ENABLE_NEMOTRON_THINKING", "false").lower() == "true":
+                if (
+                    os.environ.get("ENABLE_NEMOTRON_THINKING", "false").lower()
+                    == "true"
+                ):
                     logger.info("Setting system prompt as detailed thinking on")
                     system_prompt = "detailed thinking on"
                 else:
@@ -468,10 +843,12 @@ class NvidiaRAG():
                 nemotron_message += [("user", prompts.get("chat_template", ""))]
 
             for message in chat_history:
-                if message.get("role") ==  "system":
+                if message.get("role") == "system":
                     system_prompt = system_prompt + " " + message.get("content")
                 else:
-                    conversation_history.append((message.get("role"), message.get("content")))
+                    conversation_history.append(
+                        (message.get("role"), message.get("content"))
+                    )
 
             system_message = [("system", system_prompt)]
 
@@ -479,56 +856,110 @@ class NvidiaRAG():
             if query is not None and query != "":
                 user_message += [("user", "{question}")]
 
-            # Prompt template with system message, conversation history and user query
-            message = system_message + nemotron_message + conversation_history + user_message
+            # Prompt template with system message, conversation history and
+            # user query
+            message = (
+                system_message + nemotron_message + conversation_history + user_message
+            )
 
             self.__print_conversation_history(message, query)
 
             prompt_template = ChatPromptTemplate.from_messages(message)
             llm = get_llm(**llm_settings)
 
-            chain = prompt_template | llm | StreamingFilterThinkParser | StrOutputParser()
-            return generate_answer(chain.stream({"question": query}, config={'run_name':'llm-stream'}), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+            chain = (
+                prompt_template | llm | StreamingFilterThinkParser | StrOutputParser()
+            )
+            return generate_answer(
+                chain.stream({"question": query}, config={"run_name": "llm-stream"}),
+                [],
+                model=model,
+                collection_name=collection_name,
+                enable_citations=enable_citations,
+            )
         except ConnectTimeout as e:
-            logger.warning("Connection timed out while making a request to the LLM endpoint: %s", e)
-            return generate_answer(iter([f"Connection timed out while making a request to the NIM endpoint. Verify if the NIM server is available."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+            logger.warning(
+                "Connection timed out while making a request to the LLM endpoint: %s", e
+            )
+            return generate_answer(
+                iter(
+                    [
+                        "Connection timed out while making a request to the NIM endpoint. Verify if the NIM server is available."
+                    ]
+                ),
+                [],
+                model=model,
+                collection_name=collection_name,
+                enable_citations=enable_citations,
+            )
 
         except Exception as e:
             logger.warning("Failed to generate response due to exception %s", e)
             print_exc()
 
             if "[403] Forbidden" in str(e) and "Invalid UAM response" in str(e):
-                logger.warning("Authentication or permission error: Verify the validity and permissions of your NVIDIA API key.")
-                return generate_answer(iter([f"Authentication or permission error: Verify the validity and permissions of your NVIDIA API key."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                logger.warning(
+                    "Authentication or permission error: Verify the validity and permissions of your NVIDIA API key."
+                )
+                return generate_answer(
+                    iter(
+                        [
+                            "Authentication or permission error: Verify the validity and permissions of your NVIDIA API key."
+                        ]
+                    ),
+                    [],
+                    model=model,
+                    collection_name=collection_name,
+                    enable_citations=enable_citations,
+                )
             elif "[404] Not Found" in str(e):
-                logger.warning("Please verify the API endpoint and your payload. Ensure that the model name is valid.")
-                return generate_answer(iter([f"Please verify the API endpoint and your payload. Ensure that the model name is valid."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                logger.warning(
+                    "Please verify the API endpoint and your payload. Ensure that the model name is valid."
+                )
+                return generate_answer(
+                    iter(
+                        [
+                            "Please verify the API endpoint and your payload. Ensure that the model name is valid."
+                        ]
+                    ),
+                    [],
+                    model=model,
+                    collection_name=collection_name,
+                    enable_citations=enable_citations,
+                )
             else:
-                return generate_answer(iter([f"Failed to generate RAG chain response. {str(e)}"]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(
+                    iter([f"Failed to generate RAG chain response. {str(e)}"]),
+                    [],
+                    model=model,
+                    collection_name=collection_name,
+                    enable_citations=enable_citations,
+                )
 
     def __rag_chain(
         self,
-        llm_settings: Dict[str, Any],
+        llm_settings: dict[str, Any],
         query: str,
-        chat_history: List[Dict[str, str]],
+        chat_history: list[dict[str, str]],
         reranker_top_k: int = 10,
         vdb_top_k: int = 40,
         collection_name: str = "",
-        collection_names: List[str] = [CONFIG.vector_store.default_collection_name],
-        embedding_model: str = "",
-        embedding_endpoint: Optional[str] = None,
-        vdb_endpoint: str = "http://localhost:19530",
+        collection_names: list[str] = None,
         enable_reranker: bool = True,
         reranker_model: str = "",
-        reranker_endpoint: Optional[str] = None,
+        reranker_endpoint: str | None = None,
         enable_vlm_inference: bool = False,
         vlm_model: str = "",
         vlm_endpoint: str = "",
         model: str = "",
         enable_query_rewriting: bool = False,
         enable_citations: bool = True,
-        filter_expr: Optional[str] = '',
-    ) -> Tuple[Generator[str, None, None], List[Dict[str, Any]]]:
+        filter_expr: str | list[dict[str, Any]] | None = "",
+        enable_filter_generator: bool = False,
+        vdb_op: VDBRag = None,
+        enable_query_decomposition: bool = False,
+        confidence_threshold: float = CONFIG.default_confidence_threshold,
+    ) -> tuple[Generator[str, None, None], list[dict[str, Any]]]:
         """Execute a RAG chain using the components defined above.
         It's called when the `/generate` API is invoked with `use_knowledge_base` set to `True`.
 
@@ -550,44 +981,122 @@ class NvidiaRAG():
             enable_query_rewriting: Whether to enable query rewriting
             enable_citations: Whether to enable citations
             filter_expr: Filter expression to filter document from vector DB
+            enable_filter_generator: Whether to enable automatic filter generation
+            enable_query_decomposition: Whether to use iterative query decomposition for complex queries
         """
-        logger.info("Using multiturn rag to generate response from document for the query: %s", query)
+        logger.info(
+            "Using multiturn rag to generate response from document for the query: %s",
+            query,
+        )
 
         try:
-            # If collection_name is provided, use it as the collection name, Otherwise, use the collection names from the kwargs
-            if collection_name: # Would be deprecated in the future
-                logger.warning("'collection_name' parameter is provided. This will be deprecated in the future. Use 'collection_names' instead.")
+            # If collection_name is provided, use it as the collection name,
+            # Otherwise, use the collection names from the kwargs
+            if collection_name:  # Would be deprecated in the future
+                logger.warning(
+                    "'collection_name' parameter is provided. This will be deprecated in the future. Use 'collection_names' instead."
+                )
                 collection_names = [collection_name]
             # Check if collection names are provided
             if not collection_names:
                 raise APIError("Collection names are not provided.", 400)
+
             if len(collection_names) > 1 and not enable_reranker:
-                raise APIError("Reranking is not enabled but multiple collection names are provided.", 400)
+                raise APIError(
+                    "Reranking is not enabled but multiple collection names are provided.",
+                    400,
+                )
             if len(collection_names) > MAX_COLLECTION_NAMES:
-                raise APIError(f"Only {MAX_COLLECTION_NAMES} collections are supported at a time.", 400)
-            if not validate_filter_expr(filter_expr):
-                raise APIError("Invalid filter expression.", 400)
+                raise APIError(
+                    f"Only {MAX_COLLECTION_NAMES} collections are supported at a time.",
+                    400,
+                )
 
-            document_embedder = get_embedding_model(model=embedding_model, url=embedding_endpoint)
-            # Initialize vector stores for each collection name
-            vector_stores = []
-            for collection_name in collection_names:
-                vector_stores.append(get_vectorstore(document_embedder, collection_name, vdb_endpoint))
+            metadata_schemas = {}
+            if (
+                filter_expr
+                and (not isinstance(filter_expr, str) or filter_expr.strip() != "")
+            ) or enable_filter_generator:
+                for collection_name in collection_names:
+                    metadata_schemas[collection_name] = vdb_op.get_metadata_schema(
+                        collection_name
+                    )
 
-            # Check if all vector stores are initialized properly
-            for vs in vector_stores:
-                if vs is None:
-                    raise APIError("Vector store not initialized properly. Please check if the vector DB is up and running.", 500)
+            if not filter_expr or (
+                isinstance(filter_expr, str) and filter_expr.strip() == ""
+            ):
+                validation_result = {
+                    "status": True,
+                    "validated_collections": collection_names,
+                }
+            else:
+                validation_result = validate_filter_expr(
+                    filter_expr, collection_names, metadata_schemas
+                )
+
+            if not validation_result["status"]:
+                error_message = validation_result.get(
+                    "error_message", "Invalid filter expression"
+                )
+                error_details = validation_result.get("details", "")
+                full_error = f"Invalid filter expression: {error_message}"
+                if error_details:
+                    full_error += f" Details: {error_details}"
+                raise APIError(full_error, 400)
+
+            validated_collections = validation_result.get(
+                "validated_collections", collection_names
+            )
+
+            if len(validated_collections) < len(collection_names):
+                skipped_collections = [
+                    name
+                    for name in collection_names
+                    if name not in validated_collections
+                ]
+                logger.info(
+                    f"Collections {skipped_collections} do not support the filter expression and will be skipped"
+                )
+
+            if not filter_expr or (
+                isinstance(filter_expr, str) and filter_expr.strip() == ""
+            ):
+                collection_filter_mapping = dict.fromkeys(validated_collections, "")
+                logger.debug(
+                    "Filter expression is empty, skipping processing for all collections"
+                )
+            else:
+
+                def process_filter_for_collection(collection_name):
+                    # Use cached metadata schema to avoid duplicate API call
+                    metadata_schema_data = metadata_schemas.get(collection_name)
+                    processed_filter_expr = process_filter_expr(
+                        filter_expr, collection_name, metadata_schema_data
+                    )
+                    logger.debug(
+                        f"Filter expression processed for collection '{collection_name}': '{filter_expr}' -> '{processed_filter_expr}'"
+                    )
+                    return collection_name, processed_filter_expr
+
+                collection_filter_mapping = {}
+                with ThreadPoolExecutor() as executor:
+                    futures = [
+                        executor.submit(process_filter_for_collection, collection_name)
+                        for collection_name in validated_collections
+                    ]
+                    for future in futures:
+                        collection_name, processed_filter_expr = future.result()
+                        collection_filter_mapping[collection_name] = (
+                            processed_filter_expr
+                        )
 
             llm = get_llm(**llm_settings)
             logger.info("Ranker enabled: %s", enable_reranker)
-            ranker = get_ranking_model(model=reranker_model, url=reranker_endpoint, top_n=reranker_top_k)
+            ranker = get_ranking_model(
+                model=reranker_model, url=reranker_endpoint, top_n=reranker_top_k
+            )
             top_k = vdb_top_k if ranker and enable_reranker else reranker_top_k
             logger.info("Setting retriever top k as: %s.", top_k)
-            # Initialize retrievers for each vector store
-            retrievers = []
-            for vs in vector_stores:
-                retrievers.append(vs.as_retriever(search_kwargs={"k": top_k}))
 
             # conversation is tuple so it should be multiple of two
             # -1 is to keep last k conversation
@@ -599,7 +1108,10 @@ class NvidiaRAG():
             user_message = []
 
             if "llama-3.3-nemotron-super-49b" in str(model):
-                if os.environ.get("ENABLE_NEMOTRON_THINKING", "false").lower() == "true":
+                if (
+                    os.environ.get("ENABLE_NEMOTRON_THINKING", "false").lower()
+                    == "true"
+                ):
                     logger.info("Setting system prompt as detailed thinking on")
                     system_prompt = "detailed thinking on"
                 else:
@@ -608,16 +1120,19 @@ class NvidiaRAG():
                 user_message += [("user", prompts.get("rag_template", ""))]
 
             for message in chat_history:
-                if message.get("role") ==  "system":
+                if message.get("role") == "system":
                     system_prompt = system_prompt + " " + message.get("content")
                 else:
-                    conversation_history.append((message.get("role"), message.get("content")))
+                    conversation_history.append(
+                        (message.get("role"), message.get("content"))
+                    )
 
             system_message = [("system", system_prompt)]
             retriever_query = query
             if chat_history:
                 if enable_query_rewriting:
-                    # Based on conversation history recreate query for better document retrieval
+                    # Based on conversation history recreate query for better
+                    # document retrieval
                     contextualize_q_system_prompt = (
                         "Given a chat history and the latest user question "
                         "which might reference context in the chat history, "
@@ -625,23 +1140,160 @@ class NvidiaRAG():
                         "without the chat history. Do NOT answer the question, "
                         "just reformulate it if needed and otherwise return it as is."
                     )
-                    query_rewriter_prompt = prompts.get("query_rewriter_prompt", contextualize_q_system_prompt)
-                    contextualize_q_prompt = ChatPromptTemplate.from_messages(
-                        [("system", query_rewriter_prompt), MessagesPlaceholder("chat_history"), ("human", "{input}"),]
+                    query_rewriter_prompt = prompts.get(
+                        "query_rewriter_prompt", contextualize_q_system_prompt
                     )
-                    q_prompt = contextualize_q_prompt | query_rewriter_llm | StreamingFilterThinkParser | StrOutputParser()
+                    contextualize_q_prompt = ChatPromptTemplate.from_messages(
+                        [
+                            ("system", query_rewriter_prompt),
+                            MessagesPlaceholder("chat_history"),
+                            ("human", "{input}"),
+                        ]
+                    )
+                    q_prompt = (
+                        contextualize_q_prompt
+                        | query_rewriter_llm
+                        | StreamingFilterThinkParser
+                        | StrOutputParser()
+                    )
                     # query to be used for document retrieval
                     logger.info("Query rewriter prompt: %s", contextualize_q_prompt)
-                    retriever_query = q_prompt.invoke({"input": query, "chat_history": conversation_history}, config={'run_name':'query-rewriter'})
-                    logger.info("Rewritten Query: %s %s", retriever_query, len(retriever_query))
-                    if retriever_query.replace('"', "'") == "''" or len(retriever_query) == 0:
-                        return generate_answer(iter([""]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                    retriever_query = q_prompt.invoke(
+                        {"input": query, "chat_history": conversation_history},
+                        config={"run_name": "query-rewriter"},
+                    )
+                    logger.info(
+                        "Rewritten Query: %s %s", retriever_query, len(retriever_query)
+                    )
+                    if (
+                        retriever_query.replace('"', "'") == "''"
+                        or len(retriever_query) == 0
+                    ):
+                        return generate_answer(
+                            iter([""]),
+                            [],
+                            model=model,
+                            collection_name=collection_name,
+                            enable_citations=enable_citations,
+                        )
                 else:
-                    # Use previous user queries and current query to form a single query for document retrieval
-                    user_queries = [msg.get("content") for msg in chat_history if msg.get("role") == "user"]
-                    # TODO: Find a better way to join this when queries already have punctuation
+                    # Use previous user queries and current query to form a
+                    # single query for document retrieval
+                    user_queries = [
+                        msg.get("content")
+                        for msg in chat_history
+                        if msg.get("role") == "user"
+                    ]
+                    # TODO: Find a better way to join this when queries already
+                    # have punctuation
                     retriever_query = ". ".join([*user_queries, query])
                     logger.info("Combined retriever query: %s", retriever_query)
+
+            if enable_filter_generator:
+                if CONFIG.vector_store.name != "milvus":
+                    logger.warning(
+                        f"Filter expression generator is currently only supported for Milvus. "
+                        f"Current vector store: {CONFIG.vector_store.name}. Skipping filter generation."
+                    )
+                else:
+                    logger.debug(
+                        "Filter expression generator enabled, attempting to generate filter from query"
+                    )
+                    try:
+
+                        def generate_filter_for_collection(collection_name):
+                            try:
+                                metadata_schema_data = metadata_schemas.get(
+                                    collection_name
+                                )
+
+                                generated_filter = (
+                                    generate_filter_from_natural_language(
+                                        user_request=retriever_query,
+                                        collection_name=collection_name,
+                                        metadata_schema=metadata_schema_data,
+                                        prompt_template=prompts.get(
+                                            "filter_expression_generator_prompt"
+                                        ),
+                                        llm=filter_generator_llm,
+                                        existing_filter_expr=filter_expr,
+                                    )
+                                )
+
+                                if generated_filter:
+                                    logger.info(
+                                        f"Generated filter expression for collection '{collection_name}': {generated_filter}"
+                                    )
+                                    processed_filter_expr = process_filter_expr(
+                                        generated_filter,
+                                        collection_name,
+                                        metadata_schema_data,
+                                        is_generated_filter=True,
+                                    )
+                                    return collection_name, processed_filter_expr
+                                else:
+                                    logger.info(
+                                        f"No filter expression generated for collection '{collection_name}'"
+                                    )
+                                    return collection_name, ""
+                            except Exception as e:
+                                logger.warning(
+                                    f"Error generating filter for collection '{collection_name}': {str(e)}"
+                                )
+                                return collection_name, ""
+
+                        with ThreadPoolExecutor() as executor:
+                            futures = [
+                                executor.submit(
+                                    generate_filter_for_collection, collection_name
+                                )
+                                for collection_name in validated_collections
+                            ]
+
+                            for future in futures:
+                                collection_name, processed_filter_expr = future.result()
+                                collection_filter_mapping[collection_name] = (
+                                    processed_filter_expr
+                                )
+
+                        generated_count = len(
+                            [f for f in collection_filter_mapping.values() if f]
+                        )
+                        if generated_count > 0:
+                            logger.debug(
+                                f"Generated filter expressions for {generated_count}/{len(validated_collections)} collections"
+                            )
+                        else:
+                            logger.debug(
+                                "No filter expressions generated for any collection"
+                            )
+
+                    except Exception as e:
+                        logger.warning(f"Error generating filter expression: {str(e)}")
+
+            if enable_query_decomposition:
+                logger.info("Using query decomposition for complex query processing")
+                return iterative_query_decomposition(
+                    query=query,
+                    history=conversation_history,
+                    llm=llm,
+                    vdb_op=vdb_op,
+                    ranker=ranker if enable_reranker else None,
+                    recursion_depth=CONFIG.query_decomposition.recursion_depth,
+                    enable_citations=enable_citations,
+                    collection_name=validated_collections[0]
+                    if validated_collections
+                    else "",
+                    top_k=top_k,
+                    confidence_threshold=confidence_threshold,
+                )
+
+            if confidence_threshold > 0.0 and not enable_reranker:
+                logger.warning(
+                    f"confidence_threshold is set to {confidence_threshold} but enable_reranker is explicitly set to False. "
+                    f"Confidence threshold filtering requires reranker to be enabled to generate relevance scores. "
+                    f"Consider setting enable_reranker=True for effective filtering."
+                )
 
             # Get relevant documents with optional reflection
             if os.environ.get("ENABLE_REFLECTION", "false").lower() == "true":
@@ -649,20 +1301,25 @@ class NvidiaRAG():
                 reflection_counter = ReflectionCounter(max_loops)
 
                 context_to_show, is_relevant = check_context_relevance(
-                    retriever_query,
-                    retrievers,
-                    ranker,
-                    reflection_counter,
-                    filter_expr=filter_expr
+                    vdb_op=self.vdb_op,
+                    retriever_query=retriever_query,
+                    collection_names=validated_collections,
+                    ranker=ranker,
+                    reflection_counter=reflection_counter,
+                    top_k=top_k,
+                    enable_reranker=enable_reranker,
+                    collection_filter_mapping=collection_filter_mapping,
                 )
-                
-                # Normalize scores to 0-1 range (was missing!)
+
+                # Normalize scores to 0-1 range
                 if ranker and enable_reranker:
                     context_to_show = self.__normalize_relevance_scores(context_to_show)
 
                 if not is_relevant:
-                    logger.warning("Could not find sufficiently relevant context after %d attempts",
-                                  reflection_counter.current_count)
+                    logger.warning(
+                        "Could not find sufficiently relevant context after %d attempts",
+                        reflection_counter.current_count,
+                    )
             else:
                 otel_ctx = otel_context.get_current()
                 if ranker and enable_reranker:
@@ -670,30 +1327,78 @@ class NvidiaRAG():
                         "Narrowing the collection from %s results and further narrowing it to "
                         "%s with the reranker for rag chain.",
                         top_k,
-                        reranker_top_k)
+                        reranker_top_k,
+                    )
                     logger.info("Setting ranker top n as: %s.", reranker_top_k)
-                    context_reranker = RunnableAssign({
-                        "context":
-                            lambda input: ranker.compress_documents(query=input['question'], documents=input['context'])
-                    })
+                    context_reranker = RunnableAssign(
+                        {
+                            "context": lambda input: ranker.compress_documents(
+                                query=input["question"], documents=input["context"]
+                            )
+                        }
+                    )
 
                     # Perform parallel retrieval from all vector stores
                     docs = []
+                    vectorstores = []
+                    for collection_name in validated_collections:
+                        vectorstores.append(
+                            vdb_op.get_langchain_vectorstore(collection_name)
+                        )
+
                     with ThreadPoolExecutor() as executor:
-                        futures = [executor.submit(retreive_docs_from_retriever, retriever=retriever, retriever_query=query, expr=filter_expr, otel_ctx=otel_ctx) for retriever in retrievers]
+                        futures = [
+                            executor.submit(
+                                vdb_op.retrieval_langchain,
+                                query=retriever_query,
+                                collection_name=collection_name,
+                                vectorstore=vectorstore,
+                                top_k=top_k,
+                                filter_expr=collection_filter_mapping.get(
+                                    collection_name, ""
+                                ),
+                                otel_ctx=otel_ctx,
+                            )
+                            for collection_name, vectorstore in zip(
+                                validated_collections, vectorstores, strict=False
+                            )
+                        ]
                         for future in futures:
                             docs.extend(future.result())
 
                     start_time = time.time()
-                    docs = context_reranker.invoke({"context": docs, "question": query}, config={'run_name':'context_reranker'})
-                    logger.info("    == Context reranker time: %.2f ms ==", (time.time() - start_time) * 1000)
+                    docs = context_reranker.invoke(
+                        {"context": docs, "question": query},
+                        config={"run_name": "context_reranker"},
+                    )
+                    logger.info(
+                        "    == Context reranker time: %.2f ms ==",
+                        (time.time() - start_time) * 1000,
+                    )
                     context_to_show = docs.get("context", [])
                     # Normalize scores to 0-1 range
                     context_to_show = self.__normalize_relevance_scores(context_to_show)
                 else:
                     # Multiple retrievers are not supported when reranking is disabled
-                    docs = retreive_docs_from_retriever(retriever=retrievers[0], retriever_query=query, expr=filter_expr, otel_ctx=otel_ctx)
+                    docs = vdb_op.retrieval_langchain(
+                        query=retriever_query,
+                        collection_name=validated_collections[0],
+                        vectorstore=vdb_op.get_langchain_vectorstore(
+                            validated_collections[0]
+                        ),
+                        top_k=top_k,
+                        filter_expr=collection_filter_mapping.get(
+                            validated_collections[0], ""
+                        ),
+                        otel_ctx=otel_ctx,
+                    )
                     context_to_show = docs
+
+            if ranker and enable_reranker and confidence_threshold > 0.0:
+                context_to_show = filter_documents_by_confidence(
+                    documents=context_to_show,
+                    confidence_threshold=confidence_threshold,
+                )
 
             if enable_vlm_inference:
                 logger.info("Calling VLM to analyze images cited in the context")
@@ -706,7 +1411,10 @@ class NvidiaRAG():
                     if vlm_response and vlm.reason_on_vlm_response(
                         query, vlm_response, context_to_show, llm_settings
                     ):
-                        logger.info("VLM response validated and added to prompt: %s", vlm_response)
+                        logger.info(
+                            "VLM response validated and added to prompt: %s",
+                            vlm_response,
+                        )
                         vlm_response_prompt = (
                             "The following is an answer generated by a Vision-Language Model (VLM) based solely on images cited in the context:\n"
                             f"---\n{vlm_response.strip()}\n---\n"
@@ -714,17 +1422,25 @@ class NvidiaRAG():
                         )
                         user_message += [("user", vlm_response_prompt)]
                     else:
-                        logger.info("VLM response skipped after reasoning or was empty.")
-                except (ValueError, EnvironmentError) as e:
+                        logger.info(
+                            "VLM response skipped after reasoning or was empty."
+                        )
+                except (OSError, ValueError) as e:
                     logger.warning(
                         "VLM processing failed for query='%s', collection='%s': %s",
-                        query, collection_name, e, exc_info=True
+                        query,
+                        collection_name,
+                        e,
+                        exc_info=True,
                     )
 
                 except Exception as e:
                     logger.error(
                         "Unexpected error during VLM processing for query='%s', collection='%s': %s",
-                        query, collection_name, e, exc_info=True
+                        query,
+                        collection_name,
+                        e,
+                        exc_info=True,
                     )
 
             docs = [self.__format_document_with_source(d) for d in context_to_show]
@@ -737,52 +1453,129 @@ class NvidiaRAG():
 
             chain = prompt | llm | StreamingFilterThinkParser | StrOutputParser()
 
-            # Check response groundedness if we still have reflection iterations available
-            if os.environ.get("ENABLE_REFLECTION", "false").lower() == "true" and reflection_counter.remaining > 0:
+            # Check response groundedness if we still have reflection
+            # iterations available
+            if (
+                os.environ.get("ENABLE_REFLECTION", "false").lower() == "true"
+                and reflection_counter.remaining > 0
+            ):
                 initial_response = chain.invoke({"question": query, "context": docs})
                 final_response, is_grounded = check_response_groundedness(
-                    initial_response,
-                    docs,
-                    reflection_counter
+                    initial_response, docs, reflection_counter
                 )
                 if not is_grounded:
-                    logger.warning("Could not generate sufficiently grounded response after %d total reflection attempts",
-                                    reflection_counter.current_count)
-                return generate_answer(iter([final_response]), context_to_show, model=model, collection_name=collection_name, enable_citations=enable_citations)
+                    logger.warning(
+                        "Could not generate sufficiently grounded response after %d total reflection attempts",
+                        reflection_counter.current_count,
+                    )
+                return generate_answer(
+                    iter([final_response]),
+                    context_to_show,
+                    model=model,
+                    collection_name=collection_name,
+                    enable_citations=enable_citations,
+                )
             else:
-                return generate_answer(chain.stream({"question": query, "context": docs}, config={'run_name':'llm-stream'}), context_to_show, model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(
+                    chain.stream(
+                        {"question": query, "context": docs},
+                        config={"run_name": "llm-stream"},
+                    ),
+                    context_to_show,
+                    model=model,
+                    collection_name=collection_name,
+                    enable_citations=enable_citations,
+                )
 
         except ConnectTimeout as e:
-            logger.warning("Connection timed out while making a request to the LLM endpoint: %s", e)
-            return generate_answer(iter([f"Connection timed out while making a request to the NIM endpoint. Verify if the NIM server is available."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+            logger.warning(
+                "Connection timed out while making a request to the LLM endpoint: %s", e
+            )
+            return generate_answer(
+                iter(
+                    [
+                        "Connection timed out while making a request to the NIM endpoint. Verify if the NIM server is available."
+                    ]
+                ),
+                [],
+                model=model,
+                collection_name=collection_name,
+                enable_citations=enable_citations,
+            )
 
         except requests.exceptions.ConnectionError as e:
             if "HTTPConnectionPool" in str(e):
                 logger.error("Connection pool error while connecting to service: %s", e)
-                return generate_answer(iter([f"Connection error: Failed to connect to service. Please verify if all required NIMs are running and accessible."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(
+                    iter(
+                        [
+                            "Connection error: Failed to connect to service. Please verify if all required NIMs are running and accessible."
+                        ]
+                    ),
+                    [],
+                    model=model,
+                    collection_name=collection_name,
+                    enable_citations=enable_citations,
+                )
 
         except Exception as e:
             logger.warning("Failed to generate response due to exception %s", e)
             print_exc()
 
             if "[403] Forbidden" in str(e) and "Invalid UAM response" in str(e):
-                logger.warning("Authentication or permission error: Verify the validity and permissions of your NVIDIA API key.")
-                return generate_answer(iter([f"Authentication or permission error: Verify the validity and permissions of your NVIDIA API key."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                logger.warning(
+                    "Authentication or permission error: Verify the validity and permissions of your NVIDIA API key."
+                )
+                return generate_answer(
+                    iter(
+                        [
+                            "Authentication or permission error: Verify the validity and permissions of your NVIDIA API key."
+                        ]
+                    ),
+                    [],
+                    model=model,
+                    collection_name=collection_name,
+                    enable_citations=enable_citations,
+                )
             elif "[404] Not Found" in str(e):
-                logger.warning("Please verify the API endpoint and your payload. Ensure that the model name is valid.")
-                return generate_answer(iter([f"Please verify the API endpoint and your payload. Ensure that the model name is valid."]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                logger.warning(
+                    "Please verify the API endpoint and your payload. Ensure that the model name is valid."
+                )
+                return generate_answer(
+                    iter(
+                        [
+                            "Please verify the API endpoint and your payload. Ensure that the model name is valid."
+                        ]
+                    ),
+                    [],
+                    model=model,
+                    collection_name=collection_name,
+                    enable_citations=enable_citations,
+                )
             else:
-                return generate_answer(iter([f"Failed to generate RAG chain with multi-turn response. {str(e)}"]), [], model=model, collection_name=collection_name, enable_citations=enable_citations)
+                return generate_answer(
+                    iter(
+                        [
+                            f"Failed to generate RAG chain with multi-turn response. {str(e)}"
+                        ]
+                    ),
+                    [],
+                    model=model,
+                    collection_name=collection_name,
+                    enable_citations=enable_citations,
+                )
 
-
-    def __print_conversation_history(self, conversation_history: List[str] = None, query: str | None = None):
+    def __print_conversation_history(
+        self, conversation_history: list[str] = None, query: str | None = None
+    ):
         if conversation_history is not None:
             for role, content in conversation_history:
                 logger.debug("Role: %s", role)
                 logger.debug("Content: %s\n", content)
 
-
-    def __normalize_relevance_scores(self, documents: List["Document"]) -> List["Document"]:
+    def __normalize_relevance_scores(
+        self, documents: list["Document"]
+    ) -> list["Document"]:
         """
         Normalize relevance scores in a list of documents to be between 0 and 1 using sigmoid function.
 
@@ -797,14 +1590,13 @@ class NvidiaRAG():
 
         # Apply sigmoid normalization (1 / (1 + e^-x))
         for doc in documents:
-            if 'relevance_score' in doc.metadata:
-                original_score = doc.metadata['relevance_score']
+            if "relevance_score" in doc.metadata:
+                original_score = doc.metadata["relevance_score"]
                 scaled_score = original_score * 0.1
                 normalized_score = 1 / (1 + math.exp(-scaled_score))
-                doc.metadata['relevance_score'] = normalized_score
+                doc.metadata["relevance_score"] = normalized_score
 
         return documents
-
 
     def __format_document_with_source(self, doc) -> str:
         """Format document content with its source filename.
@@ -820,22 +1612,28 @@ class NvidiaRAG():
         logger.debug(f"Before format_document_with_source - Document: {doc}")
 
         # Check if source metadata is enabled via environment variable
-        enable_metadata = os.getenv('ENABLE_SOURCE_METADATA', 'True').lower() == 'true'
+        enable_metadata = os.getenv("ENABLE_SOURCE_METADATA", "True").lower() == "true"
 
         # Return just content if metadata is disabled or doc has no metadata
-        if not enable_metadata or not hasattr(doc, 'metadata'):
+        if not enable_metadata or not hasattr(doc, "metadata"):
             result = doc.page_content
-            logger.debug(f"After format_document_with_source (metadata disabled) - Result: {result}")
+            logger.debug(
+                f"After format_document_with_source (metadata disabled) - Result: {result}"
+            )
             return result
 
         # Handle nested metadata structure
-        source = doc.metadata.get('source', {})
-        source_path = source.get('source_name', '') if isinstance(source, dict) else source
+        source = doc.metadata.get("source", {})
+        source_path = (
+            source.get("source_name", "") if isinstance(source, dict) else source
+        )
 
         # If no source path is found, return just the content
         if not source_path:
             result = doc.page_content
-            logger.debug(f"After format_document_with_source (no source path) - Result: {result}")
+            logger.debug(
+                f"After format_document_with_source (no source path) - Result: {result}"
+            )
             return result
 
         filename = os.path.splitext(os.path.basename(source_path))[0]

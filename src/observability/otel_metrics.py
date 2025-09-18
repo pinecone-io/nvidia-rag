@@ -16,6 +16,7 @@
 """Opentelemetery Metrics"""
 
 import logging
+
 from opentelemetry import metrics
 
 

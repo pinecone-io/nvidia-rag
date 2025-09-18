@@ -18,10 +18,9 @@ You can change inference or embedding models by using the following procedures.
 
 To change the inference model to a model from the API catalog,
 specify the model in the `APP_LLM_MODELNAME` environment variable when you start the RAG Server.
-The following example uses the `Mistral AI Mixtral 8x7B Instruct` model.
 
 ```console
-APP_LLM_MODELNAME='mistralai/mixtral-8x7b-instruct-v0.1' docker compose -f deploy/compose/docker-compose-rag-server.yaml up -d --build
+APP_LLM_MODELNAME='nvidia/llama-3.3-nemotron-super-49b-v1' docker compose -f deploy/compose/docker-compose-rag-server.yaml up -d --build
 ```
 
 To get a list of valid model names, use one of the following methods:
@@ -58,7 +57,6 @@ To get a list of valid model names, use one of the following methods:
   Refer to the package web page for sample code to list the models.
 
 [!TIP] Always use same embedding model or model having same tokinizers for both ingestion and retrieval to yield good accuracy.
-
 
 ## On Premises Microservices
 

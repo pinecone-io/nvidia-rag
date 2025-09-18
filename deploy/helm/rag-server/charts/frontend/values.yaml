@@ -1,9 +1,9 @@
 replicaCount: 1
 
 image:
-  repository: nvcr.io/nvidia/blueprint/rag-playground
+  repository: nvcr.io/nvstaging/blueprint/rag-playground
   pullPolicy: IfNotPresent
-  tag: "2.2.0"
+  tag: "latest"
 
 imagePullSecret:
   name: "ngc-secret"
@@ -57,15 +57,11 @@ ingress:
   #      - chart-example.local
 
 envVars:
-  - name: NEXT_PUBLIC_MODEL_NAME
-    value: "meta/llama-3.1-8b-instruct"
-  - name: NEXT_PUBLIC_EMBEDDING_MODEL
-    value: "nvidia/llama-3.2-nv-embedqa-1b-v2"
-  - name: NEXT_PUBLIC_RERANKER_MODEL
-    value: "nvidia/llama-3.2-nv-rerankqa-1b-v2"
-  - name: NEXT_PUBLIC_CHAT_BASE_URL
+  # Runtime environment variables for Vite frontend
+  # Note: Model names are now managed by frontend settings store
+  - name: VITE_API_CHAT_URL
     value: "http://rag-server:8081/v1"
-  - name: NEXT_PUBLIC_VDB_BASE_URL
+  - name: VITE_API_VDB_URL
     value: "http://ingestor-server:8082/v1"
 
 resources: {}

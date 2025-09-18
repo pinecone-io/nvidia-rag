@@ -14,30 +14,31 @@
 # limitations under the License.
 
 """Module to enable Observervability and Tracing instrumentation
-  1. instrument(): Instrument the FastAPI app with OpenTelemetry.
+1. instrument(): Instrument the FastAPI app with OpenTelemetry.
 """
 
+import logging
 from typing import Any
-from opentelemetry import trace
-from opentelemetry import metrics
-from opentelemetry.sdk.resources import SERVICE_NAME, Resource
-from opentelemetry.sdk.trace import TracerProvider, Span
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+
+from fastapi import FastAPI
+from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.milvus import MilvusInstrumentor
+from opentelemetry.processor.baggage import ALLOW_ALL_BAGGAGE_KEYS, BaggageSpanProcessor
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.processor.baggage import BaggageSpanProcessor, ALLOW_ALL_BAGGAGE_KEYS
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import Span, TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+
 from observability.langchain_instrumentor import LangchainInstrumentor
 from observability.otel_metrics import OtelMetrics
-from opentelemetry.instrumentation.milvus import MilvusInstrumentor
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from fastapi import FastAPI
-import logging
 
 logger = logging.getLogger(__name__)
+
 
 def _fastapi_server_request_hook(span: Span, scope: dict[str, Any]):
     """Utility function"""
@@ -93,7 +94,9 @@ def instrument(app: FastAPI, settings):
             BaggageSpanProcessor(ALLOW_ALL_BAGGAGE_KEYS)
         )
         trace.get_tracer_provider().add_span_processor(span_processor)
-        LangchainInstrumentor().instrument(tracer_provider=trace.get_tracer_provider(), metrics=otel_metrics)
+        LangchainInstrumentor().instrument(
+            tracer_provider=trace.get_tracer_provider(), metrics=otel_metrics
+        )
         MilvusInstrumentor().instrument(tracer_provider=trace.get_tracer_provider())
         FastAPIInstrumentor().instrument_app(
             app,

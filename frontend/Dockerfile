@@ -1,5 +1,6 @@
 FROM nvcr.io/nvidia/base/ubuntu:jammy-20250415.1
 
+# Install required OS dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     gnupg2 \
@@ -10,31 +11,38 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /legal
 COPY LICENSE-3rd-party.txt /legal/
 
+# Set working directory
 WORKDIR /app
 
+# Install Node.js LTS and pnpm
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
-    apt-get install -y nodejs
+    apt-get install -y nodejs && \
+    npm install -g pnpm
 
-RUN node -v && npm -v
+# Print versions for debugging
+RUN node -v && pnpm -v
 
+# Environment variables
 ARG NEXT_PUBLIC_MODEL_NAME
-ARG NEXT_PUBLIC_EMBEDDING_MODEL
-ARG NEXT_PUBLIC_RERANKER_MODEL
-ARG NEXT_PUBLIC_CHAT_BASE_URL
-ARG NEXT_PUBLIC_VDB_BASE_URL
+ARG VITE_EMBEDDING_MODEL
+ARG VITE_RERANKER_MODEL
+ARG VITE_API_CHAT_URL
+ARG VITE_MODEL_NAME
 
 ENV NEXT_PUBLIC_MODEL_NAME=${NEXT_PUBLIC_MODEL_NAME}
-ENV NEXT_PUBLIC_EMBEDDING_MODEL=${NEXT_PUBLIC_EMBEDDING_MODEL}
-ENV NEXT_PUBLIC_RERANKER_MODEL=${NEXT_PUBLIC_RERANKER_MODEL}
-ENV NEXT_PUBLIC_CHAT_BASE_URL=${NEXT_PUBLIC_CHAT_BASE_URL}
-ENV NEXT_PUBLIC_VDB_BASE_URL=${NEXT_PUBLIC_VDB_BASE_URL}
+ENV VITE_EMBEDDING_MODEL=${VITE_EMBEDDING_MODEL}
+ENV VITE_RERANKER_MODEL=${VITE_RERANKER_MODEL}
+ENV VITE_API_CHAT_URL=${VITE_API_CHAT_URL}
+ENV VITE_MODEL_NAME=${VITE_MODEL_NAME}
 
-COPY . /app
+# Copy app files
+COPY . .
 
-RUN npm install
+# Install and build
+RUN rm -rf node_modules && pnpm install --frozen-lockfile
+RUN pnpm add -D @types/node
+RUN pnpm run build
 
-RUN npm run build
-
+# Expose and launch
 EXPOSE 3000
-
-CMD ["npm", "run", "start"]
+CMD ["pnpm", "run", "preview"]

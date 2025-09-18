@@ -26,11 +26,14 @@ The following issues might arise when you work with the NVIDIA RAG Blueprint.
   For these features, please use H100 or A100 GPUs instead.
 - Sometimes when HTTP cloud NIM endpoints are used from `deploy/compose/.env`, the `nv-ingest-ms-runtime` still logs gRPC environment variables. Following log entries can be ignored.
 - Poor retrieval accuracy is observed with Milvus GPU indexing and search in B200 and A100. Switch to cpu based search and indexing.
-- Large audio files are not supported for ingestion due to processing constraints and LLM context-length limitations.
 - If one of the file in a bulk ingestion job is of type svg, which is a unsupported format, the full bulk ingestion job fails.
 - Complicated filter expressions with custom metadata while sending a query, are not supported from the sample user interface.
 - Due to a known issue with MIG support, currently the ingestion profile has been scaled down while deploying the chart with MIG slicing This affects the ingestion performance during bulk ingestion, specifically large bulk ingestion jobs might fail.
-- With [image captioning enabled](image_captioning.md), uploaded files will fail to get ingested, if they do not contain any graphs, charts, tables or plots. This is currently a known limitation and will be fixed in a future release.
+
+- **Confidence threshold filtering issues**
+  - If no documents are returned when using confidence threshold filtering, the threshold may be set too high. Try lowering the `confidence_threshold` value or ensure the reranker is enabled to provide relevance scores.
+  - Confidence threshold filtering works best when reranker is enabled. Without reranker, documents may not have meaningful relevance scores.
+  - For optimal results, use confidence threshold values between 0.3-0.7. Values above 0.7 may be too restrictive.
 
 ## Ingestion failures
 

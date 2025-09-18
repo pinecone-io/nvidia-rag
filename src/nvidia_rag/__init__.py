@@ -15,8 +15,8 @@
 
 # Import the necessary modules and classes for the package
 import logging
-logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
 try:
     from .rag_server.main import NvidiaRAG
 except ModuleNotFoundError as e:
@@ -26,4 +26,3 @@ try:
     from .ingestor_server.main import NvidiaRAGIngestor
 except ModuleNotFoundError as e:
     logger.debug(f"Error importing NvidiaRAGIngestor: {e}")
-

@@ -29,7 +29,7 @@ services:
 
   nemoretriever-embedding-ms:
     container_name: nemoretriever-embedding-ms
-    image: nvcr.io/nim/nvidia/llama-3.2-nv-embedqa-1b-v2:1.6.0
+    image: nvcr.io/nim/nvidia/llama-3.2-nv-embedqa-1b-v2:1.9.0
     volumes:
     - ${MODEL_DIRECTORY:-./}:/opt/nim/.cache
     ports:
@@ -57,9 +57,39 @@ services:
       start_period: 10m
     profiles: ["", "rag", "ingest"]
 
+  nemoretriever-vlm-embedding-ms:
+    container_name: nemoretriever-vlm-embedding-ms
+    image: nvcr.io/nvidia/nemo-microservices/llama-3.2-nemoretriever-1b-vlm-embed-v1:1.7.0
+    volumes:
+    - ${MODEL_DIRECTORY:-./}:/opt/nim/.cache
+    ports:
+    - "9081:8000"
+    expose:
+    - "8000"
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY}
+      NIM_TRT_ENGINE_HOST_CODE_ALLOWED: 1
+    user: "${USERID}"
+    shm_size: 16GB
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              # count: ${INFERENCE_GPU_COUNT:-all}
+              device_ids: ['${VLM_EMBEDDING_MS_GPU_ID:-0}']
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10m
+    profiles: ["", "rag", "ingest"]
+
   nemoretriever-ranking-ms:
     container_name: nemoretriever-ranking-ms
-    image: nvcr.io/nim/nvidia/llama-3.2-nv-rerankqa-1b-v2:1.5.0
+    image: nvcr.io/nim/nvidia/llama-3.2-nv-rerankqa-1b-v2:1.7.0
     volumes:
     - ${MODEL_DIRECTORY:-./}:/opt/nim/.cache
     ports:
@@ -85,7 +115,7 @@ services:
     profiles: ["", "rag"]
 
   page-elements:
-    image: ${YOLOX_IMAGE:-nvcr.io/nim/nvidia/nemoretriever-page-elements-v2}:${YOLOX_TAG:-1.3.0}
+    image: ${YOLOX_IMAGE:-nvcr.io/nim/nvidia/nemoretriever-page-elements-v2}:${YOLOX_TAG:-1.4.0}
     ports:
       - "8000:8000"
       - "8001:8001"
@@ -118,7 +148,7 @@ services:
     profiles: ["", "ingest"]
 
   graphic-elements:
-    image: ${YOLOX_GRAPHIC_ELEMENTS_IMAGE:-nvcr.io/nim/nvidia/nemoretriever-graphic-elements-v1}:${YOLOX_GRAPHIC_ELEMENTS_TAG:-1.3.0}
+    image: ${YOLOX_GRAPHIC_ELEMENTS_IMAGE:-nvcr.io/nim/nvidia/nemoretriever-graphic-elements-v1}:${YOLOX_GRAPHIC_ELEMENTS_TAG:-1.4.0}
     ports:
       - "8003:8000"
       - "8004:8001"
@@ -142,7 +172,7 @@ services:
     profiles: ["", "ingest"]
 
   table-structure:
-    image: ${YOLOX_TABLE_STRUCTURE_IMAGE:-nvcr.io/nim/nvidia/nemoretriever-table-structure-v1}:${YOLOX_TABLE_STRUCTURE_TAG:-1.3.0}
+    image: ${YOLOX_TABLE_STRUCTURE_IMAGE:-nvcr.io/nim/nvidia/nemoretriever-table-structure-v1}:${YOLOX_TABLE_STRUCTURE_TAG:-1.4.0}
     ports:
       - "8006:8000"
       - "8007:8001"
@@ -165,7 +195,7 @@ services:
     profiles: ["", "ingest"]
 
   paddle:
-    image: ${PADDLE_IMAGE:-nvcr.io/nim/baidu/paddleocr}:${PADDLE_TAG:-1.3.0}
+    image: ${PADDLE_IMAGE:-nvcr.io/nim/baidu/paddleocr}:${PADDLE_TAG:-1.4.0}
     shm_size: 2gb
     ports:
       - "8009:8000"
@@ -183,10 +213,34 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids:  ['${PADDLE_MS_GPU_ID:-0}']
+              device_ids:  ['${OCR_MS_GPU_ID:-${PADDLE_MS_GPU_ID:-0}}']
               capabilities: [gpu]
     runtime: nvidia
     profiles: ["", "ingest"]
+
+  nemoretriever-ocr:
+    image: ${NEMORETRIEVER_OCR_IMAGE:-nvcr.io/nvidia/nemo-microservices/nemoretriever-ocr-v1}:${NEMORETRIEVER_OCR_TAG:-latest}
+    shm_size: 2gb
+    ports:
+      - "8012:8000"
+      - "8013:8001"
+      - "8014:8002"
+    user: root
+    environment:
+      - NIM_HTTP_API_PORT=8000
+      - NIM_TRITON_LOG_VERBOSE=1
+      - NVIDIA_API_KEY=${NGC_API_KEY:-nvidiaapikey}
+      - NGC_API_KEY=${NGC_API_KEY:-nvidiaapikey}
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${OCR_MS_GPU_ID:-${PADDLE_MS_GPU_ID:-0}}"]
+              capabilities: [gpu]
+    runtime: nvidia
+    profiles: ["nemoretriever-ocr"]
 
   # Optional NIM microservices
   nemoretriever-parse:
@@ -288,34 +342,6 @@ services:
       timeout: 20s
       retries: 100
     profiles: ["llama-8b"]
-
-  # This service requires significant GPU resources - recommended 8XA100 or 8XH100 GPUs
-  nim-llm-mixtral-8x22b:
-    container_name: nim-llm-mixtral-8x22b
-    image: nvcr.io/nim/mistralai/mixtral-8x22b-instruct-v01:1.2.2
-    volumes:
-    - ${MODEL_DIRECTORY:-./}:/opt/nim/.cache
-    user: "${USERID}"
-    ports:
-    - "8998:8000"
-    expose:
-    - "8000"
-    environment:
-      NGC_API_KEY: ${NGC_API_KEY}
-    shm_size: 20gb
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ['${REFLECTION_MS_GPU_ID:-0,1,2,3,4,5,6,7}']
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8000/v1/health/ready')"]
-      interval: 10s
-      timeout: 20s
-      retries: 100
-    profiles: ["mixtral-8x22b"]
 
 networks:
   default:
