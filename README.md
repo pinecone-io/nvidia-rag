@@ -1,13 +1,13 @@
-<h1><img align="center" src="https://github.com/user-attachments/assets/cbe0d62f-c856-4e0b-b3ee-6184b7c4d96f">NVIDIA+Pinecone RAG Blueprint</h1>
+<h1><img align="center" src="https://github.com/user-attachments/assets/cbe0d62f-c856-4e0b-b3ee-6184b7c4d96f">Pinecone Enterprise RAG Blueprint</h1>
 
-Use this documentation to learn about the NVIDIA RAG Blueprint.
-The target audience for this blueprint is
-developers who want a quick start to set up a RAG solution with a path-to-production with the NVIDIA NIM.
+Use this documentation to learn about the Pinecone Enterprise RAG Blueprint, which now includes full support for Pinecone's vector database services. Pinecone provides a scalable and efficient solution for vector storage and retrieval, enhancing the performance and flexibility of the RAG setup.
+
+The target audience for this blueprint is developers who want a quick start to set up a RAG solution with a path-to-production with Pinecone and NVIDIA NIM.
 For the prerequisites for this blueprint, see [Minimum System Requirements](/docs/support-matrix.md).
 
 ## Overview
 
-The NVIDIA RAG blueprint serves as a reference solution for a foundational Retrieval Augmented Generation (RAG) pipeline.
+The Pinecone Enterprise RAG Blueprint serves as a reference solution for a foundational Retrieval Augmented Generation (RAG) pipeline.
 One of the key use cases in Generative AI is enabling users to ask questions and receive answers based on their enterprise data corpus.
 This blueprint demonstrates how to set up a RAG solution that uses NVIDIA NIM and GPU-accelerated components.
 By default, this blueprint leverages locally-deployed NVIDIA NIM microservices to meet specific data governance and latency requirements.
@@ -40,28 +40,28 @@ However, you can replace these models with your NVIDIA-hosted models available i
 
 The following are the default components included in this blueprint:
 
-* NVIDIA NIM Microservices
-   * Response Generation (Inference)
-      * [NIM of nvidia/llama-3.3-nemotron-super-49b-v1](https://build.nvidia.com/nvidia/llama-3_3-nemotron-super-49b-v1)
-    * Retriever Models
-      * [NIM of nvidia/llama-3_2-nv-embedqa-1b-v2]( https://build.nvidia.com/nvidia/llama-3_2-nv-embedqa-1b-v2)
-      * [NIM of nvidia/llama-3_2-nv-rerankqa-1b-v2](https://build.nvidia.com/nvidia/llama-3_2-nv-rerankqa-1b-v2)
-      * [NeMo Retriever Page Elements NIM](https://build.nvidia.com/nvidia/nemoretriever-page-elements-v2)
-      * [NeMo Retriever Table Structure NIM](https://build.nvidia.com/nvidia/nemoretriever-table-structure-v1)
-      * [NeMo Retriever Graphic Elements NIM](https://build.nvidia.com/nvidia/nemoretriever-graphic-elements-v1)
-      * [PaddleOCR NIM](https://build.nvidia.com/baidu/paddleocr)
+- NVIDIA NIM Microservices
+  - Response Generation (Inference)
+    - [NIM of nvidia/llama-3.3-nemotron-super-49b-v1](https://build.nvidia.com/nvidia/llama-3_3-nemotron-super-49b-v1)
+  - Retriever Models
+    - [NIM of nvidia/llama-3_2-nv-embedqa-1b-v2]( https://build.nvidia.com/nvidia/llama-3_2-nv-embedqa-1b-v2)
+    - [NIM of nvidia/llama-3_2-nv-rerankqa-1b-v2](https://build.nvidia.com/nvidia/llama-3_2-nv-rerankqa-1b-v2)
+    - [NeMo Retriever Page Elements NIM](https://build.nvidia.com/nvidia/nemoretriever-page-elements-v2)
+    - [NeMo Retriever Table Structure NIM](https://build.nvidia.com/nvidia/nemoretriever-table-structure-v1)
+    - [NeMo Retriever Graphic Elements NIM](https://build.nvidia.com/nvidia/nemoretriever-graphic-elements-v1)
+    - [PaddleOCR NIM](https://build.nvidia.com/baidu/paddleocr)
 
-  * Optional NIMs
-    * [NeMo Retriever OCR NIM](https://build.nvidia.com/nvidia/nemoretriever-ocr)
-    * [Llama 3.1 NemoGuard 8B Content Safety NIM](https://build.nvidia.com/nvidia/llama-3_1-nemoguard-8b-content-safety)
-    * [Llama 3.1 NemoGuard 8B Topic Control NIM](https://build.nvidia.com/nvidia/llama-3_1-nemoguard-8b-topic-control)
-    * [Llama-3.1 Nemotron-nano-vl-8b-v1 NIM](https://build.nvidia.com/nvidia/llama-3.1-nemotron-nano-vl-8b-v1)
-    * [NeMo Retriever Parse NIM](https://build.nvidia.com/nvidia/nemoretriever-parse)
+  - Optional NIMs
+    - [NeMo Retriever OCR NIM](https://build.nvidia.com/nvidia/nemoretriever-ocr)
+    - [Llama 3.1 NemoGuard 8B Content Safety NIM](https://build.nvidia.com/nvidia/llama-3_1-nemoguard-8b-content-safety)
+    - [Llama 3.1 NemoGuard 8B Topic Control NIM](https://build.nvidia.com/nvidia/llama-3_1-nemoguard-8b-topic-control)
+    - [Llama-3.1 Nemotron-nano-vl-8b-v1 NIM](https://build.nvidia.com/nvidia/llama-3.1-nemotron-nano-vl-8b-v1)
+    - [NeMo Retriever Parse NIM](https://build.nvidia.com/nvidia/nemoretriever-parse)
 
-* RAG Orchestrator server - Langchain based
-* Pinecone Vector Database - integrated as a service for efficient vector storage and retrieval.
-* Ingestion - [Nemo Retriever Extraction](https://github.com/NVIDIA/nv-ingest/tree/main) is leveraged for ingestion of files. Nemo Retriever Extraction is a scalable, performance-oriented document content and metadata extraction microservice. Including support for parsing PDFs, Word and PowerPoint documents, it uses specialized NVIDIA NIM microservices to find, contextualize, and extract text, tables, charts and images for use in downstream generative applications.
-* File Types: File types supported by Nemo Retriever Extraction are supported by this blueprint. This includes `.pdf`, `.pptx`, `.docx` having images. Image captioning support is turned off by default to improve latency, so questions about images in documents will yield poor accuracy. For the full list of supported file types, see [What is NeMo Retriever Extraction?](https://docs.nvidia.com/nemo/retriever/extraction/overview/)
+- RAG Orchestrator server - Langchain based
+- Pinecone Vector Database - integrated as a service for efficient vector storage and retrieval.
+- Ingestion - [Nemo Retriever Extraction](https://github.com/NVIDIA/nv-ingest/tree/main) is leveraged for ingestion of files. Nemo Retriever Extraction is a scalable, performance-oriented document content and metadata extraction microservice. Including support for parsing PDFs, Word and PowerPoint documents, it uses specialized NVIDIA NIM microservices to find, contextualize, and extract text, tables, charts and images for use in downstream generative applications.
+- File Types: File types supported by Nemo Retriever Extraction are supported by this blueprint. This includes `.pdf`, `.pptx`, `.docx` having images. Image captioning support is turned off by default to improve latency, so questions about images in documents will yield poor accuracy. For the full list of supported file types, see [What is NeMo Retriever Extraction?](https://docs.nvidia.com/nemo/retriever/extraction/overview/)
 
 We provide Docker Compose scripts that deploy the microservices on a single node.
 Alternatively, developers can launch this blueprint directly in an [NVIDIA AI Workbench](https://www.nvidia.com/en-us/deep-learning-ai/solutions/data-science/workbench/) developer environment.
@@ -105,13 +105,26 @@ The image represents the architecture and workflow. Here's a step-by-step explan
 
 This modular design ensures efficient query processing, accurate retrieval of information, and easy customization.
 
-## Get Started With NVIDIA RAG Blueprint
+## Get Started With Pinecone Enterprise RAG Blueprint
 
 | :exclamation: Important |
 | :-----------------------|
-| Users running this blueprint with [NVIDIA AI Workbench](https://www.nvidia.com/en-us/deep-learning-ai/solutions/data-science/workbench/) should skip to the quickstart section [here](deploy/workbench/README.md#get-started)! |
+| Users run this blueprint via [NVIDIA Brev](https://brev.nvidia.com/launchable/deploy/now?launchableID=env-31qPRQGUGV2082mQs0zpZOvQFBk&forceLogin=true)
 
-To get started with the NVIDIA RAG Blueprint, do the following:
+### 🚀 Quick Start for Brev Launchable Users
+
+If you're using the NVIDIA Brev launchable environment, follow these steps:
+
+1. **Deploy via Brev**: Click the [NVIDIA Brev Launchable](https://brev.nvidia.com/launchable/deploy/now?launchableID=env-31qPRQGUGV2082mQs0zpZOvQFBk&forceLogin=true) to deploy your environment
+2. **Access JupyterLab**: Once deployed, navigate to the JupyterLab interface in your Brev environment
+3. **Open the Launchable Notebook**: Navigate to `notebooks/launchable_pinecone.ipynb` in the JupyterLab file browser
+4. **Follow the Step-by-Step Guide**: The notebook provides a complete walkthrough from deployment to experiencing the RAG pipeline
+
+> **Note**: The Brev environment comes pre-configured with all system requirements, so you can skip the system prerequisites check and start directly with the deployment steps.
+
+### 📚 Additional Resources
+
+To get started with the Pinecone Enterprise RAG Blueprint, do the following:
 
 - Use the procedures in [Get Started](./docs/quickstart.md) to deploy this blueprint.
 - See the [OpenAPI Specifications](./docs/api_reference).
@@ -158,7 +171,7 @@ The following are some of the features that you can enable:
 
 To fine-tune RAG performance, see [Best practices for common settings](./docs/accuracy_perf.md).
 
-To troubleshoot issues that arise when you work with the NVIDIA RAG Blueprint, see [Troubleshoot](docs/troubleshooting.md).
+To troubleshoot issues that arise when you work with the Pinecone Enterprise RAG Blueprint, see [Troubleshoot](docs/troubleshooting.md).
 
 > **⚠️ Important B200 Limitation Notice:**
 >

@@ -1,6 +1,6 @@
-# Pinecone Configuration for NVIDIA RAG Blueprint
+# Pinecone Configuration for Pinecone Enterprise RAG Blueprint
 
-This document outlines the configuration options for integrating Pinecone as a vector database within the NVIDIA RAG Blueprint. You can choose between using Pinecone Local for local development or the Pinecone service for production use.
+This document outlines the configuration options for integrating Pinecone as a vector database within the Pinecone Enterprise RAG Blueprint. You can choose between using Pinecone Local for local development or the Pinecone service for production use.
 
 ## Option 1: Pinecone Local
 
@@ -65,6 +65,13 @@ For production use, you can leverage the Pinecone service, which provides a scal
 
 2. **Obtain an API Key**: Once logged in, generate an API key from the Pinecone console.
 
-3. **Configure Your Application**: Use the API key to authenticate requests to the Pinecone service. No additional setup is required.
+3. **Export Environment Variables**: Set up your environment variables:
+
+   ```bash
+   export PINECONE_API_KEY="<your-pinecone-api-key>"
+   export PINECONE_INDEX_NAME="<your-pinecone-index-name>"
+   ```
+
+4. **Configure Your Application**: Use the API key to authenticate requests to the Pinecone service. No additional setup is required.
 
 The Pinecone service offers robust features for production environments, including persistent storage, authentication, and scalability.
