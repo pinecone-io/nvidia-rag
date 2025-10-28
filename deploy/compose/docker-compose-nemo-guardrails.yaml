@@ -38,6 +38,7 @@ services:
       - ${MODEL_DIRECTORY:-~/.cache/models/}:/opt/nim/.cache/
     ports:
       - "8123:8000"
+    runtime: nvidia
     deploy:
       resources:
         reservations:
@@ -63,6 +64,7 @@ services:
       - ${MODEL_DIRECTORY:-~/.cache/models/}:/opt/nim/.cache/
     ports:
       - "8124:8000"
+    runtime: nvidia
     deploy:
       resources:
         reservations:
