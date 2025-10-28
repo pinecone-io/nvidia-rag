@@ -3,9 +3,9 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 
-# Get Started With NVIDIA RAG Blueprint
+# Get Started With Pinecone Enterprise RAG Blueprint
 
-Use the following documentation to get started with the NVIDIA RAG Blueprint.
+Use the following documentation to get started with the Pinecone Enterprise RAG Blueprint, which includes Pinecone's vector database services.
 
 - [Obtain an API Key](#obtain-an-api-key)
 - [Interact using native python APIs](#interact-using-native-python-apis)
@@ -13,11 +13,22 @@ Use the following documentation to get started with the NVIDIA RAG Blueprint.
 - [Deploy With Helm Chart](#deploy-with-helm-chart)
 - [Data Ingestion](#data-ingestion)
 
-
 ## Obtain an API Key
 
-You need to generate an API key
-to access NIM services, to access models hosted in the NVIDIA API Catalog, and to download models on-premises.
+For Pinecone:
+
+1. Go to [Pinecone Console](https://app.pinecone.io) and sign up for an account if you don't have one.
+2. Navigate to the API keys section on the left side of the dashboard.
+3. Click **Generate API Key** and copy the generated key.
+4. Export your API key as an environment variable:
+
+   ```bash
+   export PINECONE_API_KEY="<your-pinecone-api-key>"
+   ```
+
+For NVIDIA NIM services:
+
+You need to generate an API key to access NIM services, to access models hosted in the NVIDIA API Catalog, and to download models on-premises.
 For more information, refer to [NGC API Keys](https://docs.nvidia.com/ngc/gpu-cloud/ngc-private-registry-user-guide/index.html#ngc-api-keys).
 
 To generate an API key, use the following procedure.
