@@ -12,6 +12,7 @@ services:
     environment:
       NGC_API_KEY: ${NGC_API_KEY}
     shm_size: 20gb
+    runtime: nvidia
     deploy:
       resources:
         reservations:
@@ -41,6 +42,7 @@ services:
       NIM_TRT_ENGINE_HOST_CODE_ALLOWED: 1
     user: "${USERID}"
     shm_size: 16GB
+    runtime: nvidia
     deploy:
       resources:
         reservations:
@@ -71,6 +73,7 @@ services:
       NIM_TRT_ENGINE_HOST_CODE_ALLOWED: 1
     user: "${USERID}"
     shm_size: 16GB
+    runtime: nvidia
     deploy:
       resources:
         reservations:
@@ -99,6 +102,7 @@ services:
     environment:
       NGC_API_KEY: ${NGC_API_KEY}
     user: "${USERID}"
+    runtime: nvidia
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]
       interval: 10s
@@ -300,6 +304,7 @@ services:
     environment:
       NGC_API_KEY: ${NGC_API_KEY}
     user: "${USERID}"
+    runtime: nvidia
     healthcheck:
       test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8000/v1/health/ready')"]
       interval: 10s
@@ -328,6 +333,7 @@ services:
     environment:
       NGC_API_KEY: ${NGC_API_KEY}
     shm_size: 20gb
+    runtime: nvidia
     deploy:
       resources:
         reservations:
