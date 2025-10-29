@@ -20,7 +20,7 @@ services:
     environment:
       # Environment variables for Pinecone
       PINECONE_API_KEY: ${PINECONE_API_KEY:?"PINECONE_API_KEY is required"}
-      PINECONE_INDEX_NAME: ${PINECONE_INDEX_NAME:?"PINECONE_INDEX_NAME is required"}
+      PINECONE_INDEX_NAME: ${PINECONE_INDEX_NAME:-multimodal-data}
 
       # Path to example directory relative to root
       EXAMPLE_PATH: 'src/nvidia_rag/ingestor_server'
