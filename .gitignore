@@ -83,3 +83,6 @@ cover/
 
 # Notebook scratchpad
 .virtual_documents
+
+# Cursor
+.cursor/
